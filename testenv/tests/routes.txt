@@ -22,8 +22,6 @@ GET /info auth=True usc=True exe=-
 GET /init/init auth=False usc=True exe=-
 GET /init/is_inited auth=False usc=True exe=-
 GET /log auth=True usc=True exe=-
-GET /modem/get_status auth=True usc=True exe=-
-GET /modem/sim_setting auth=True usc=True exe=-
 GET /msd auth=True usc=True exe=-
 GET /msd/partition_connect auth=True usc=True exe=-
 GET /msd/partition_disconnect auth=True usc=True exe=-
@@ -103,10 +101,6 @@ POST /hid/set_connected auth=True usc=True exe=-
 POST /hid/set_jiggler_schedule auth=True usc=True exe=-
 POST /hid/set_params auth=True usc=True exe=-
 POST /init/change_password auth=True usc=True exe=-
-POST /modem/at auth=True usc=True exe=-
-POST /modem/enable auth=True usc=True exe=-
-POST /modem/input_pin_code auth=True usc=True exe=-
-POST /modem/sim_setting auth=True usc=True exe=-
 POST /msd/remove auth=True usc=True exe=-
 POST /msd/reset auth=True usc=True exe=-
 POST /msd/set_connected auth=True usc=True exe=-
