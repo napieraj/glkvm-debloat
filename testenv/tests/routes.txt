@@ -30,10 +30,6 @@ GET /msd/partition_disconnect auth=True usc=True exe=-
 GET /msd/partition_format auth=True usc=True exe=-
 GET /msd/partition_show auth=True usc=True exe=-
 GET /msd/read auth=True usc=True exe=-
-GET /netbird/config auth=True usc=True exe=-
-GET /netbird/get_info auth=True usc=True exe=-
-GET /netbird/gui_config auth=True usc=True exe=/usr/sbin/gl_kvm_gui
-GET /netbird/gui_get_info auth=True usc=True exe=/usr/sbin/gl_kvm_gui
 GET /recorder auth=True usc=True exe=-
 GET /redfish/v1 auth=False usc=True exe=-
 GET /redfish/v1/Systems auth=True usc=True exe=-
@@ -127,16 +123,6 @@ POST /msd/set_params auth=True usc=True exe=-
 POST /msd/switch_partition auth=True usc=True exe=-
 POST /msd/write auth=True usc=True exe=-
 POST /msd/write_remote auth=True usc=True exe=-
-POST /netbird/config auth=True usc=True exe=-
-POST /netbird/gui_config auth=True usc=True exe=/usr/sbin/gl_kvm_gui
-POST /netbird/gui_login auth=True usc=True exe=/usr/sbin/gl_kvm_gui
-POST /netbird/gui_logout auth=True usc=True exe=/usr/sbin/gl_kvm_gui
-POST /netbird/gui_start auth=True usc=True exe=/usr/sbin/gl_kvm_gui
-POST /netbird/gui_stop auth=True usc=True exe=/usr/sbin/gl_kvm_gui
-POST /netbird/login auth=True usc=True exe=-
-POST /netbird/logout auth=True usc=True exe=-
-POST /netbird/start auth=True usc=True exe=-
-POST /netbird/stop auth=True usc=True exe=-
 POST /recorder/start auth=True usc=True exe=-
 POST /recorder/stop auth=True usc=True exe=-
 POST /redfish/v1/Systems/0/Actions/ComputerSystem.Reset auth=True usc=True exe=-
