@@ -47,6 +47,7 @@ import asyncio
 
 from ...htserver import HttpExposed
 from ...htserver import exposed_http
+from ...htserver import get_request_auth_token
 from ...htserver import exposed_ws
 from ...htserver import make_json_response
 from ...htserver import WsSession
@@ -517,10 +518,9 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
         user_agent = req.headers.get("User-Agent", "unknown")
         # 在连接建立时就解析 user_agent，保存 device_type 和 browser
         device_type, browser = parse_user_agent(user_agent)
-        # 提取 auth_token 以便后续断开连接时可以删除
-        auth_token = req.query.get("auth_token") or \
-                     req.headers.get("Token") or \
-                     req.cookies.get("auth_token", "")
+        # 会话 token 来自刚刚通过鉴权的那次请求(htserver 已暂存),
+        # 不再从 URL 查询串里读取,见 docs/audit.md (R5.9)。
+        auth_token = get_request_auth_token(req)
         async with self._ws_session(req, stream=stream, client_ip=client_ip, user_agent=user_agent, device_type=device_type, browser=browser, auth_token=auth_token) as ws:
             (major, minor) = __version__.split(".")
             await ws.send_event("loop", {

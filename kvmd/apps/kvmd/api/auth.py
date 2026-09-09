@@ -55,6 +55,59 @@ from ..auth import AuthManager
 _COOKIE_AUTH_TOKEN = "auth_token"
 
 
+def _is_trusted_peer(req: Request) -> bool:
+    """本次连接的对端是否可信到可以相信它设置的代理头。
+
+    Trusted means the immediate peer is local: a Unix socket connection, which
+    is how nginx reaches kvmd (kvmd/server declares only a `unix` listener,
+    apps/__init__.py), or a loopback TCP address. Anything else is a remote
+    client talking to us directly, and its headers are its own claims.
+    """
+    if get_request_unix_credentials(req) is not None:
+        # SO_PEERCRED succeeded, so this is a Unix socket peer.
+        return True
+    peer_ip = _get_peer_ip(req)
+    if not peer_ip:
+        return False
+    try:
+        return ipaddress.ip_address(peer_ip).is_loopback
+    except ValueError:
+        return False
+
+
+def _get_peer_ip(req: Request) -> str:
+    """对端 socket 的地址；Unix socket 连接没有地址,返回空串。"""
+    if req.transport is None:
+        return ""
+    peername = req.transport.get_extra_info("peername")
+    if isinstance(peername, tuple) and len(peername) >= 1:
+        return str(peername[0])
+    return ""
+
+
+def get_client_ip(req: Request) -> str:
+    """Identify the client for the local-network gate.
+
+    Takes the REQUEST, not a headers dict, so that identifying a caller by its
+    own headers is not expressible at the call site. X-Real-IP and
+    X-Forwarded-For are honoured only when the immediate peer is trusted; from
+    an untrusted peer they are ignored entirely in favour of the transport
+    address, because a header a remote client controls is that client naming
+    itself. See docs/audit.md on the header-derived-identity finding.
+    """
+    if _is_trusted_peer(req):
+        real_ip = req.headers.get("X-Real-IP", "").strip()
+        if real_ip:
+            return real_ip
+        forwarded_for = req.headers.get("X-Forwarded-For", "")
+        if forwarded_for:
+            # X-Forwarded-For can carry a chain; the client is the first entry.
+            first = forwarded_for.split(",")[0].strip()
+            if first:
+                return first
+    return (_get_peer_ip(req) or "unknown")
+
+
 def _is_local_network(ip_str: str) -> bool:
     """Check if IP address is from local/private network"""
     try:
@@ -82,7 +135,7 @@ async def _check_token(auth_manager: AuthManager, _: HttpExposed, req: Request) 
     if token:
         user = auth_manager.check(valid_auth_token(token))
         if user:
-            set_request_auth_info(req, f"{user} (token)")
+            set_request_auth_info(req, f"{user} (token)", token)
             return True
         set_request_auth_info(req, "- (token)")
         raise ForbiddenError()
@@ -110,21 +163,9 @@ async def _check_header_token(auth_manager: AuthManager, _: HttpExposed, req: Re
     if token:
         user = auth_manager.check(valid_auth_token(token))
         if user:
-            set_request_auth_info(req, f"{user} (header-token)")
+            set_request_auth_info(req, f"{user} (header-token)", token)
             return True
         set_request_auth_info(req, "- (header-token)")
-        raise ForbiddenError()
-    return False
-
-
-async def _check_query_token(auth_manager: AuthManager, _: HttpExposed, req: Request) -> bool:
-    token = req.query.get("auth_token", "")
-    if token:
-        user = auth_manager.check(valid_auth_token(token))
-        if user:
-            set_request_auth_info(req, f"{user} (query-token)")
-            return True
-        set_request_auth_info(req, "- (query-token)")
         raise ForbiddenError()
     return False
 
@@ -176,7 +217,7 @@ async def check_request_auth(auth_manager: AuthManager, exposed: HttpExposed, re
         return
     if not auth_manager.is_auth_required(exposed):
         return
-    for checker in [_check_xhdr, _check_header_token, _check_query_token, _check_token, _check_basic, _check_usc]:
+    for checker in [_check_xhdr, _check_header_token, _check_token, _check_basic, _check_usc]:
         if (await checker(auth_manager, exposed, req)):
             return
     raise UnauthorizedError()
@@ -194,7 +235,7 @@ class AuthApi:
             credentials = await req.post()
 
             # Identified from the socket peer, for the access log only.
-            client_ip = self.__auth_manager._get_client_ip(req)
+            client_ip = get_client_ip(req)
 
             user = valid_user(credentials.get("user", ""))
             passwd = valid_passwd(credentials.get("passwd", ""))
@@ -224,15 +265,13 @@ class AuthApi:
     @exposed_http("POST", "/auth/logout", allow_usc=False)
     async def __logout_handler(self, req: Request) -> Response:
         if self.__auth_manager.is_auth_enabled():
-            # 从每个来源获取 token，如果有提供就注销
+            # 从 header / cookie 获取 token，如果有提供就注销。
+            # 不再接受 URL 查询串里的 token,见 docs/audit.md (R5.9)。
             header_token = req.headers.get("Token", "")
-            query_token = req.query.get("auth_token", "")
             cookie_token = req.cookies.get(_COOKIE_AUTH_TOKEN, "")
 
             if header_token:
                 self.__auth_manager.logout(valid_auth_token(header_token))
-            if query_token:
-                self.__auth_manager.logout(valid_auth_token(query_token))
             if cookie_token:
                 self.__auth_manager.logout(valid_auth_token(cookie_token))
         return make_json_response()
@@ -245,7 +284,7 @@ class AuthApi:
     @exposed_http("GET", "/same_check", auth_required=False, allow_usc=False)
     async def __same_check_handler(self, req: Request) -> Response:
         # Get client IP address
-        client_ip = self.__auth_manager._get_client_ip(req)
+        client_ip = get_client_ip(req)
 
         # Check if request is from local network
         if not _is_local_network(client_ip):

@@ -285,6 +285,7 @@ def parse_ws_event(msg: str) -> tuple[str, dict]:
 
 # =====
 _REQUEST_AUTH_INFO = "_kvmd_auth_info"
+_REQUEST_AUTH_TOKEN = "_kvmd_auth_token"
 
 
 def _format_P(req: BaseRequest, *_, **__) -> str:  # type: ignore  # pylint: disable=invalid-name
@@ -294,8 +295,20 @@ def _format_P(req: BaseRequest, *_, **__) -> str:  # type: ignore  # pylint: dis
 AccessLogger._format_P = staticmethod(_format_P)  # type: ignore  # pylint: disable=protected-access
 
 
-def set_request_auth_info(req: BaseRequest, info: str) -> None:
+def set_request_auth_info(req: BaseRequest, info: str, token: str="") -> None:
     setattr(req, _REQUEST_AUTH_INFO, info)
+    setattr(req, _REQUEST_AUTH_TOKEN, token)
+
+
+def get_request_auth_token(req: BaseRequest) -> str:
+    """The session token of the request that has already been authenticated.
+
+    Lets the WebSocket handshake reach the caller's token without the caller
+    re-sending it in the query string: the auth check has just validated this
+    request and stashed the token it validated. See docs/audit.md on the
+    session-token-in-URL finding.
+    """
+    return str(getattr(req, _REQUEST_AUTH_TOKEN, ""))
 
 
 # exe: 身份只由 allowed_exe_paths 白名单产生(见 api/auth.py),即本机进程

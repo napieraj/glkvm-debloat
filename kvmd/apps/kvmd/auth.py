@@ -23,14 +23,11 @@
 import pwd
 import grp
 import dataclasses
-import ipaddress
 import time
 import datetime
 
 import secrets
 
-
-from aiohttp.web import BaseRequest
 
 from ...logging import get_logger
 
@@ -41,7 +38,6 @@ from ...plugins.auth import get_auth_service_class
 
 from ...htserver import HttpExposed
 from ...htserver import RequestUnixCredentials
-from ...htserver import get_request_unix_credentials
 
 
 # =====
@@ -328,57 +324,3 @@ class AuthManager:  # pylint: disable=too-many-arguments,too-many-instance-attri
     def check_unix_credentials(self, creds: RequestUnixCredentials) -> (str | None):
         assert self.__enabled
         return self.__usc_uids.get(creds.uid)
-
-    # =====
-    # Rate limiting methods
-
-    def __is_trusted_peer(self, req: BaseRequest) -> bool:
-        """本次连接的对端是否可信到可以相信它设置的代理头。
-
-        Trusted means the immediate peer is local: either a Unix socket
-        connection, which is how nginx reaches kvmd (kvmd/server has only a
-        `unix` listener, apps/__init__.py:422), or a loopback TCP address.
-        Anything else is a remote client talking to us directly, and its
-        headers are its own claims.
-        """
-        if get_request_unix_credentials(req) is not None:
-            # SO_PEERCRED succeeded, so this is a Unix socket peer.
-            return True
-        peer_ip = self.__get_peer_ip(req)
-        if not peer_ip:
-            return False
-        try:
-            return ipaddress.ip_address(peer_ip).is_loopback
-        except ValueError:
-            return False
-
-    def __get_peer_ip(self, req: BaseRequest) -> str:
-        """对端 socket 的地址；Unix socket 连接没有地址,返回空串。"""
-        if req.transport is None:
-            return ""
-        peername = req.transport.get_extra_info("peername")
-        if isinstance(peername, tuple) and len(peername) >= 1:
-            return str(peername[0])
-        return ""
-
-    def _get_client_ip(self, req: BaseRequest) -> str:
-        """Identify the client for rate limiting and local-network checks.
-
-        Takes the REQUEST, not a headers dict, so that identifying a caller by
-        its own headers is not expressible at the call site. X-Real-IP and
-        X-Forwarded-For are honoured only when the immediate peer is trusted
-        (see __is_trusted_peer); from an untrusted peer they are ignored
-        entirely in favour of the transport address, because a header a remote
-        client controls is that client naming itself.
-        """
-        if self.__is_trusted_peer(req):
-            real_ip = req.headers.get("X-Real-IP", "").strip()
-            if real_ip:
-                return real_ip
-            forwarded_for = req.headers.get("X-Forwarded-For", "")
-            if forwarded_for:
-                # X-Forwarded-For can carry a chain; the client is the first entry.
-                first = forwarded_for.split(",")[0].strip()
-                if first:
-                    return first
-        return (self.__get_peer_ip(req) or "unknown")
