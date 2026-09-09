@@ -18,7 +18,7 @@ Every security defect found in it lives in code PiKVM never wrote.
 | API layer growth | **6.5×** — 11,436 lines of route code against upstream's 1,769 |
 | New tests for it | **0** — roughly 9,700 added API lines ship with no test of their own |
 | Lint, identical config | **742** violations of the fork's own checked-in flake8 rules (upstream: none) |
-| Findings, all fork-only | **14** — three reach root, one of them without credentials |
+| Findings, all fork-only | **15** — three reach root, one of them without credentials |
 
 ---
 
@@ -80,7 +80,7 @@ whitespace-on-blank-line, 75 missing-space-after-comma and 71 unused imports.
 
 ---
 
-## 3. Security — fourteen findings, three of them reach root
+## 3. Security — fifteen findings, three of them reach root
 
 Severity here is consequence on a device whose stated job is out-of-band access to
 other machines. A defect that yields a root shell on the KVM yields the console of
@@ -212,6 +212,28 @@ access logs and forwarded in the `Referer` header of anything the page loads.
 
 *verified · `api/auth.py:123, 245` · `server.py:556`*
 
+### MEDIUM — Logging out does not invalidate the user's other sessions
+
+`logout(token)` deletes exactly the one token it is handed. Every other session
+belonging to the same user stays valid, so a user who logs out — or an operator who
+logs out a session believed to be compromised — has revoked nothing but the token in
+their own browser.
+
+This is a deliberate fork change, not an oversight. Upstream's loop, which walked
+`self.__sessions` and dropped every session whose `user` matched, is still present
+directly above the replacement, commented out, under a developer comment reading
+`去掉删除所有此用户token的代码, 实在太蠢` — "removed the code that deletes all of this
+user's tokens, it's really too stupid". The `del self.__sessions[token]` that replaced
+it is a single-token delete.
+
+The consequence is that no route on the device can terminate a session it does not
+hold the token for. There is no "log out everywhere", and the token an attacker minted
+by any of the paths above survives the victim logging out, changing nothing but their
+own cookie. Note that a password change does not close sessions either: nothing in
+`change_password` touches `__sessions`.
+
+*fork-only · verified · `auth.py:333–345`, the commented-out loop at `:337–341`*
+
 ### MEDIUM — A web terminal ships enabled
 
 The device serves a browser terminal backed by `ttyd`, wired through the UI and
@@ -337,8 +359,10 @@ analysis environment, not defects in upstream, and are excluded from its count.
 ## Verification addendum (2026-09-09)
 
 Re-checked against `napieraj/glkvm-debloat` at `3e8dd23` — the same commit this
-audit was written against, and still the tip of `main`. All fourteen findings
-are present and unfixed. flake8 under the repository's own
+audit was written against, and still the tip of `main`. All fourteen findings of
+the original pass are present and unfixed. (The session-invalidation finding is a
+fifteenth, added later from the test-harness work rather than from that pass; the
+counts above include it.) flake8 under the repository's own
 `testenv/linters/flake8.ini` still reports exactly **742** violations. The
 structural counts were re-derived and hold: 232 `@exposed_http` decorators
 under `kvmd/apps/kvmd/`, of which exactly one is multi-line
