@@ -250,7 +250,12 @@ There is no docs/ directory — `ls -d docs` fails; top level is LICENSE, Makefi
 
 ### Strip the frozen 4.82 base, or rebase the security-critical files toward 4.213?
 
-**Recommendation:** Seriously consider rebasing forward for the shared files, and keep stripping only GL's own additions. This reframes the project and should be decided before step 3 goes any further, because the two paths diverge in what they leave behind.
+**DECIDED, as two separate calls with different timing:**
+
+- **auth.py rebase — DEFERRED, re-measure after steps 4/5/10.** Not judged at 568 diff lines, because most of that excess is exactly what those steps delete: TOTP, the two-step state machine, and the rate-limit/lockout subsystem. Measuring divergence before removing code the plan already commits to removing would decide the question against a number that is about to be wrong. Re-run the diff once 4, 5 and 10 have landed, and decide then.
+- **htserver.py rebase — OPTIONAL, low-diff, DEFERRED.** 136 diff lines against upstream, so it is rebaseable early and cheaply. Not urgent: the reason to want it was the socket-peer resolver, and the fork already has that resolver — as of this branch the authorisation decisions use it (see the client-identity fix), so the rebase now buys upstream's other fixes rather than any specific one this project needs.
+
+The strategic case below stands regardless and should be read before step 3 goes further, because the two paths differ in what they leave behind.
 
 The fork's base is kvmd 4.82 (kvmd/__init__.py:23); upstream is 4.213. That is ~131 releases of fixes to auth.py, htserver.py, validators/, the MSD and HID plugins and the streamer client that this tree does not have and, on the evidence, will never receive — docs/audit.md establishes GL patches userland CVEs on a normal cadence while leaving the forked core frozen, and live devices are reported still on 4.82. So patching the frozen fork is not standing still: every upstream release makes the gap wider, and the strip as written inherits that gap permanently.
 
