@@ -60,11 +60,14 @@ async def _get_configured_manager(
     internal_path: str,
     external_path: str="",
     force_internal_users: (list[str] | None)=None,
+    expire: int=0,
+    extend: bool=False,
 ) -> AsyncGenerator[AuthManager, None]:
 
     manager = AuthManager(
         enabled=True,
-        expire=0,
+        expire=expire,
+        extend=extend,
         usc_users=[],
         usc_groups=[],
         unauth_paths=unauth_paths,
@@ -202,6 +205,7 @@ async def test_ok__disabled() -> None:
         manager = AuthManager(
             enabled=False,
             expire=0,
+            extend=False,
             usc_users=[],
             usc_groups=[],
             unauth_paths=[],
@@ -268,6 +272,7 @@ def _make_disabled_manager() -> AuthManager:
     return AuthManager(
         enabled=False,
         expire=0,
+        extend=False,
         usc_users=[],
         usc_groups=[],
         unauth_paths=[],
@@ -363,6 +368,7 @@ def test_fail__totp_secret_path_is_no_longer_accepted() -> None:
         AuthManager(  # type: ignore[call-arg]
             enabled=False,
             expire=0,
+            extend=False,
             usc_users=[],
             usc_groups=[],
             unauth_paths=[],
@@ -373,3 +379,85 @@ def test_fail__totp_secret_path_is_no_longer_accepted() -> None:
             ext_kwargs={},
             totp_secret_path="",
         )
+
+
+# =====
+# The WS-session lifecycle, ported from upstream in place of the fork's
+# refresh_token_expiry. While a WebSocket is open the session does not expire
+# (expire_ts == 0); when the last one closes it is re-armed from the ORIGINAL
+# requested expire, which is what _Session.expire_req exists to remember.
+def _expire_ts(manager: AuthManager, token: str) -> int:
+    return manager._AuthManager__sessions[token].expire_ts  # pylint: disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_ok__ws_session_extends_while_open(tmpdir) -> None:  # type: ignore
+    path = os.path.abspath(str(tmpdir.join("htpasswd")))
+    htpasswd = KvmdHtpasswdFile(path, new=True)
+    htpasswd.set_password("admin", "password")
+    htpasswd.save()
+
+    async with _get_configured_manager([], path, expire=600, extend=True) as manager:
+        (token, _) = await manager.login("admin", "password", 0)
+        assert isinstance(token, str)
+        assert _expire_ts(manager, token) > 0        # finite to begin with
+
+        manager.start_ws_session(token)
+        assert _expire_ts(manager, token) == 0       # infinite while open
+        assert manager.check(token) == "admin"
+
+        manager.stop_ws_session(token)
+        assert _expire_ts(manager, token) > 0        # re-armed from expire_req
+        assert manager.check(token) == "admin"
+
+
+@pytest.mark.asyncio
+async def test_ok__ws_session_counts_nested_sockets(tmpdir) -> None:  # type: ignore
+    path = os.path.abspath(str(tmpdir.join("htpasswd")))
+    htpasswd = KvmdHtpasswdFile(path, new=True)
+    htpasswd.set_password("admin", "password")
+    htpasswd.save()
+
+    async with _get_configured_manager([], path, expire=600, extend=True) as manager:
+        (token, _) = await manager.login("admin", "password", 0)
+        assert isinstance(token, str)
+
+        manager.start_ws_session(token)
+        manager.start_ws_session(token)
+        assert _expire_ts(manager, token) == 0
+
+        manager.stop_ws_session(token)
+        assert _expire_ts(manager, token) == 0       # one socket still open
+        manager.stop_ws_session(token)
+        assert _expire_ts(manager, token) > 0        # last one closed
+
+
+@pytest.mark.asyncio
+async def test_ok__ws_session_is_a_noop_without_extend(tmpdir) -> None:  # type: ignore
+    path = os.path.abspath(str(tmpdir.join("htpasswd")))
+    htpasswd = KvmdHtpasswdFile(path, new=True)
+    htpasswd.set_password("admin", "password")
+    htpasswd.save()
+
+    async with _get_configured_manager([], path, expire=600, extend=False) as manager:
+        (token, _) = await manager.login("admin", "password", 0)
+        assert isinstance(token, str)
+        before = _expire_ts(manager, token)
+
+        manager.start_ws_session(token)
+        assert _expire_ts(manager, token) == before
+        manager.stop_ws_session(token)
+        assert _expire_ts(manager, token) == before
+
+
+@pytest.mark.asyncio
+async def test_ok__sysprep_reaches_the_auth_services(tmpdir) -> None:  # type: ignore
+    path = os.path.abspath(str(tmpdir.join("htpasswd")))
+    htpasswd = KvmdHtpasswdFile(path, new=True)
+    htpasswd.set_password("admin", "password")
+    htpasswd.save()
+
+    # sysprep() is picked up by _Subsystem.make via getattr, so the daemon calls
+    # it on startup; the base hook is a no-op and must not raise.
+    async with _get_configured_manager([], path) as manager:
+        await manager.sysprep()

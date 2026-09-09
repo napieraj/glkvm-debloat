@@ -555,19 +555,11 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
 
     @exposed_ws("ping")
     async def __ws_ping_handler(self, ws: WsSession, _: dict) -> None:
-        self.__refresh_token_from_ws(ws)
         await ws.send_event("pong", {})
 
     @exposed_ws(0)
     async def __ws_bin_ping_handler(self, ws: WsSession, _: bytes) -> None:
-        self.__refresh_token_from_ws(ws)
         await ws.send_bin(255, b"")  # Ping-pong
-
-    def __refresh_token_from_ws(self, ws: WsSession) -> None:
-        """Refresh token expiry from WebSocket session (sliding expiration)"""
-        auth_token = ws.kwargs.get("auth_token", "")
-        if auth_token and self.__auth_manager.is_auth_enabled():
-            self.__auth_manager.refresh_token_expiry(auth_token)
 
     # ===== SYSTEM STUFF
 
@@ -618,14 +610,17 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
                     logger.exception("Cleanup error on %s", sub.name)
         logger.info("On-Cleanup complete")
 
-    async def _on_ws_opened(self, _: WsSession) -> None:
+    async def _on_ws_opened(self, ws: WsSession) -> None:
+        # 会话在 WS 打开期间不过期，关闭时按原始 expire 重新计时
+        self.__auth_manager.start_ws_session(ws.kwargs.get("auth_token", ""))
         # 清理所有键盘按键状态，确保新连接时按键都是抬起状态
         self.__hid.clear_events()
         self.__streamer_notifier.notify()
         # 异步发送 SIGUSR1 信号给 gl_kvm_gui 进程
         aiotools.create_short_task(tools.run_command("killall", "-SIGUSR1", "gl_kvm_gui", timeout=5))
 
-    async def _on_ws_closed(self, _: WsSession) -> None:
+    async def _on_ws_closed(self, ws: WsSession) -> None:
+        self.__auth_manager.stop_ws_session(ws.kwargs.get("auth_token", ""))
         # 这里清理会受到rtty不会正确释放tcp连接的影响,导致会隔好几秒才进行收尾
         # 所以我们在open的时候清理一遍
         self.__hid.clear_events()

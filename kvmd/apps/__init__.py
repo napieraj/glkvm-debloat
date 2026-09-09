@@ -427,6 +427,10 @@ def _get_config_scheme() -> dict:
             "auth": {
                 "enabled": Option(True, type=valid_bool),
                 "expire":  Option(43200,    type=valid_expire),  # 12 hours in seconds
+                # Upstream defaults this to False. Kept True here so that a session
+                # with a live WebSocket does not start expiring where the fork's
+                # old always-on sliding refresh used to keep it alive.
+                "extend":  Option(True,     type=valid_bool),
 
                 "usc": {
                     "users":  Option([], type=valid_users_list),  # PiKVM username has a same regex as a UNIX username
