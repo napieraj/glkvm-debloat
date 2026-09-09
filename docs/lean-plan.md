@@ -220,6 +220,28 @@ There is no docs/ directory — `ls -d docs` fails; top level is LICENSE, Makefi
 
 ## Open decisions
 
+### Is the executable-path primitive stripped, or hardened and reused for the beacon?
+
+**Recommendation:** Reuse it. It is the only local-caller authentication the fork has that actually works, and the beacon needs exactly that.
+
+Step 6 removes the gl_kvm_gui allow-paths, and steps 3 and 5 remove 26 of the 31 routes that use them, so the mechanism itself ends up with one surviving user (server.py:578, gl-pion) and looks like dead weight. It is not. docs/audit.md section 3b establishes that it holds against spoofing: SO_PEERCRED (htserver.py:331) fails on a TCP socket, and an HTTP request arriving through nginx resolves to nginx's own binary because nginx proxies over unix:/run/kvmd/kvmd.sock, so both paths fail closed. That is a working answer to "is this caller a specific local program", which design section 7 needs and which the usc/uid path cannot give as shipped (the default usc group kvmd-selfauth is created nowhere, apps/__init__.py:436 and configs/os/sysusers.conf).
+
+Two things to harden if it is reused. It authenticates a PATH, not a principal, so its security is the filesystem ownership of the allowlisted binary — the beacon's own path must be root-owned and not on any writable mount. And /run/kvmd/kvmd.sock is 0660 (apps/__init__.py:422-424), so group membership is the real outer gate and the exe check is the only thing between "in the group" and "authenticated"; tighten the group rather than relying on the allowlist alone. Also note _check_exe_path returns True with no credential at all (api/auth.py:146-159), so any route it gates is fully authenticated by it — that is a property to use deliberately, not to inherit by accident.
+
+### Is /same_check deleted, or hardened and reused as the local-identity check?
+
+**Recommendation:** Do not simply delete it — the shape is useful, the gate is not.
+
+As shipped it is a finding (docs/audit.md, MEDIUM): auth_required=False, and its only gate is _is_local_network() over the header-derived client IP, so X-Real-IP satisfies it from anywhere. But "does this caller already know the device's MAC" is a reasonable pre-enrolment liveness check for a launcher or a beacon that has the device inventory, and it is the one route designed for a caller that has no credentials yet. Rebuild it on the socket peer (D-009 / R5.1) rather than a header, or move it behind the exe-path primitive above, and it becomes usable. Deleting it leaves the pre-enrolment path with nothing.
+
+Note it also reaches into the auth manager's private _get_client_ip from outside the class (api/auth.py:387), so it is a second caller to fix when that signature changes.
+
+### Does the strip delete Redfish, or keep a hardened endpoint?
+
+**Recommendation:** Keep it. It is standards-shaped interop the fork gets right, and the audit's concern about it did not survive investigation.
+
+docs/audit.md section 3b: only GET /redfish/v1 is open, and it returns a static ServiceRoot document. ComputerSystem.Reset, GET /Systems, GET /Systems/0 and PATCH /Systems/0 all carry no auth_required and therefore default to True. There is no unauthenticated power control, so R5.11 is narrower than it looks — the item is "should the service root be open at all", not "power control is exposed". A Redfish endpoint means standard out-of-band tooling can drive the device without anything KVMD-specific, which is worth more than the few lines it costs. If the open root is unwanted, closing that one decorator is the whole change.
+
 ### Does the strip land on top of the MCP commit (653f840), or does the MCP module get rebased onto the stripped tree?
 
 **Recommendation:** Strip on top of 653f840, and treat api/mcp.py as a first-class KEEP throughout.
