@@ -183,28 +183,32 @@ def test_fail__valid_stream_resolution(arg: Any) -> None:
 
 
 # =====
-@pytest.mark.parametrize("arg", ["25", " 20000 ", 5000])
+# The fork widened both H264 ranges to match its own schema
+# (apps/__init__.py:539-548): bitrate is 0..20000 where upstream started at 25,
+# and 0 is the fork's shipped default, so a validator rejecting it would reject
+# the default config. GOP is 0..240 where upstream stopped at 60.
+@pytest.mark.parametrize("arg", ["25", " 20000 ", 5000, "0"])
 def test_ok__valid_stream_h264_bitrate(arg: Any) -> None:
     value = valid_stream_h264_bitrate(arg)
     assert type(value) is int  # pylint: disable=unidiomatic-typecheck
     assert value == int(str(arg).strip())
 
 
-@pytest.mark.parametrize("arg", ["0", "-1", "100.0", 5000.1, None, ""])
+@pytest.mark.parametrize("arg", ["-1", "100.0", 5000.1, None, "", "20001"])
 def test_fail__valid_stream_h264_bitrate(arg: Any) -> None:
     with pytest.raises(ValidatorError):
         print(valid_stream_h264_bitrate(arg))
 
 
 # =====
-@pytest.mark.parametrize("arg", ["1 ", 0, 60])
+@pytest.mark.parametrize("arg", ["1 ", 0, 60, 61, 240])
 def test_ok__valid_stream_h264_gop(arg: Any) -> None:
     value = valid_stream_h264_gop(arg)
     assert type(value) is int  # pylint: disable=unidiomatic-typecheck
     assert value == int(str(arg).strip())
 
 
-@pytest.mark.parametrize("arg", ["test", "", None, 61, 1.1])
+@pytest.mark.parametrize("arg", ["test", "", None, 1.1, 241])
 def test_fail__valid_stream_h264_gop(arg: Any) -> None:
     with pytest.raises(ValidatorError):
         print(valid_stream_h264_gop(arg))
