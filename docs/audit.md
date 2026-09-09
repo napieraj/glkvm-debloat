@@ -18,7 +18,7 @@ Every security defect found in it lives in code PiKVM never wrote.
 | API layer growth | **6.5×** — 11,436 lines of route code against upstream's 1,769 |
 | New tests for it | **0** — roughly 9,700 added API lines ship with no test of their own |
 | Lint, identical config | **742** violations of the fork's own checked-in flake8 rules (upstream: none) |
-| Findings, all fork-only | **15** — three reach root, one of them without credentials |
+| Findings, all fork-only | **16** — three reach root, two of them without credentials |
 
 ---
 
@@ -80,7 +80,7 @@ whitespace-on-blank-line, 75 missing-space-after-comma and 71 unused imports.
 
 ---
 
-## 3. Security — fifteen findings, three of them reach root
+## 3. Security — sixteen findings, three of them reach root
 
 Severity here is consequence on a device whose stated job is out-of-band access to
 other machines. A defect that yields a root shell on the KVM yields the console of
@@ -234,6 +234,27 @@ own cookie. Note that a password change does not close sessions either: nothing 
 
 *fork-only · verified · `auth.py:333–345`, the commented-out loop at `:337–341`*
 
+### MEDIUM — An unauthenticated route confirms the device's own MAC address
+
+`GET /same_check` is `auth_required=False`. It takes a `mac` query parameter,
+reads `/proc/gl-hw-info/device_mac`, and returns `{"result": true}` when they match.
+That is an oracle: a caller who suspects a MAC can confirm it against the device
+without any credential.
+
+Its only gate is `_is_local_network(client_ip)`, and `client_ip` comes from
+`self.__auth_manager._get_client_ip(dict(req.headers))` — the same header-derived
+identity as the finding above. `X-Real-IP: 192.168.1.1` satisfies it from anywhere
+that can reach the port, so "local network only" is not a network restriction, it is
+a request header. Note the route also reaches into the auth manager's private
+`_get_client_ip` from outside the class.
+
+The disclosure itself is small — it confirms a MAC rather than revealing one — but
+it is an unauthenticated device-identification primitive, and it is a second
+consumer of the spoofable identity, which means fixing `_get_client_ip` is load-
+bearing for more than the lockout subsystem.
+
+*fork-only · verified · `api/auth.py:384–420`, gate at `:389`, header identity at `auth.py:594`*
+
 ### MEDIUM — A web terminal ships enabled
 
 The device serves a browser terminal backed by `ttyd`, wired through the UI and
@@ -275,6 +296,111 @@ time, the whole daemon fails to load. A missing file turns into a dead KVM.
 *fork-only · verified · `kvmd/utils.py:34–40`, call at `:39`*
 
 ---
+
+## 3b. Follow-up investigations — three negative results and a note
+
+Five questions raised after the original pass. One produced a finding — the
+`same_check` oracle above. Three came back negative, and the fifth is a property to
+understand rather than a defect. All five are recorded here, negatives included,
+because a negative result nobody writes down gets re-investigated forever.
+
+### NEGATIVE — Redfish power control is authenticated
+
+Only the service root is open. `GET /redfish/v1` is `auth_required=False` and returns
+a static ServiceRoot document — version string, `Id`, `Name`, and a link to
+`/redfish/v1/Systems`. It discloses that the device speaks Redfish and nothing else.
+
+`POST /redfish/v1/Systems/0/Actions/ComputerSystem.Reset` carries no `auth_required`
+argument, so it takes the default of `True`, as do `GET /redfish/v1/Systems`,
+`GET /redfish/v1/Systems/0` and `PATCH /redfish/v1/Systems/0`. There is no
+unauthenticated power control. The open root does not propagate to the actions
+beneath it; `auth_required` is per-route, set on each decorator.
+
+*verified · `api/redfish.py:68` (open root), `:79, 89, 120, 125` (all authenticated)*
+
+### NEGATIVE — the shell subprocesses take no request-derived input
+
+Seventeen `create_subprocess_shell` call sites pass a string to a shell rather than an
+argv list. Every one of them was traced to its source and none interpolates anything
+from a request:
+
+- `api/upgrade.py:386` runs entries from a class-constant `model_commands` dict keyed
+  by hardware model (`:120, 478, 488`), with the output path built from the constant
+  `LOG_DIR`.
+- `api/upgrade.py:1201, 1245, 1306` interpolate `firmware_path` and `public_key_path`,
+  both assembled from the module constants `UPGRADE_DIR`, `UPGRADE_FILE` (`:22-23`)
+  and a literal `/etc/firmware/key/public.raw` (`:1234`).
+- `api/upgrade.py:773, 775, 789, 792, 873` and `plugins/msd/otg/__init__.py:716` pass
+  literals.
+- `switch/sysfs_device.py:226` is reached only from `:274, 469, 482`, all literals.
+- `api/recorder.py:128` does interpolate a path, and quotes it with `shlex.quote`.
+- Not one of the `run_shell()` calls in the tree uses an f-string or concatenation.
+
+So this is bad practice, not command injection. It is worth recording anyway, because
+`tools.py:134 run_shell(cmd: str)` is a generic shell-string helper with call sites
+across `api/system.py`, `api/common.py` and the switch driver: the day a caller
+interpolates a query parameter, the result is injection with nothing at the call site
+to signal it. An argv-list helper would make that mistake impossible instead of
+merely absent.
+
+*verified · exhaustive `grep -rn create_subprocess_shell kvmd/` and per-site trace*
+
+### NEGATIVE — `set_param` is not a generic set-any-key
+
+`POST /system/set_param` reads a fixed list of named query parameters and writes each
+to a hard-coded YAML path: every `_set_nested_value` call in the handler passes a
+string literal as the path. The one call with a variable path
+(`api/system.py:1013`, in `POST /system/otg_functions`) iterates
+`self._OTG_FUNC_MAP`, a class constant, and takes only the *value* from the request,
+through `valid_bool`. There is no path traversal into arbitrary config keys and no
+privilege escalation by key choice.
+
+What is true is weaker: several values reach the config unvalidated —
+`otg_manufacturer`, `otg_product`, `otg_serial`, `cdrom_vendor`, `flash_vendor`,
+`camera_name`, and `msd_partition` beyond a non-empty check, which is the storage
+finding above by another route.
+
+The structural point matters more than the finding. `/system/gui_set_param` and
+`/system/gui_get_param` are four-line delegates to `/system/set_param` and
+`/system/get_param`, which are ordinary authenticated routes with exactly the same
+capability. The `gl_kvm_gui` variants add no privilege — they add a second *caller*,
+not a second *capability* — so removing them costs nothing.
+
+*verified · `api/system.py:829-950` (literal paths), `:1013` (constant map), `:824-827, 952-955` (the delegates)*
+
+### NOTE — the executable-path primitive holds against spoofing, and rests on two things
+
+31 routes are gated on `allowed_exe_paths=["/usr/sbin/gl_kvm_gui"]` (auth 5,
+tailscale 8, netbird 7, zerotier 6, system 4, upgrade 1), plus one on
+`/usr/bin/gl-pion` (`server.py:578`). `_check_exe_path` is exclusive: a non-matching
+caller is refused outright rather than falling through to the ordinary checks, and it
+returns `True` with no credential of any kind. It is therefore an authentication
+mechanism, and the whole of those 31 routes rests on it.
+
+It cannot be spoofed over the network. The peer is resolved with `SO_PEERCRED`
+(`htserver.py:331`), which the kernel fills in and which fails on a TCP socket, so
+`get_request_exe_path` returns `None` and the route 403s. Requests arriving through
+nginx also fail closed for a second reason: nginx proxies to `unix:/run/kvmd/kvmd.sock`
+(`configs/nginx/kvmd.ctx-http.conf:5-7`), so the peer of an HTTP request is nginx, and
+`/proc/<nginx>/exe` is not in any allowlist. The audit's earlier retraction stands.
+
+Two properties it does depend on, both worth stating before anything is built on top:
+
+1. **It authenticates a path, not a principal.** Anything executing as
+   `/usr/sbin/gl_kvm_gui` is authenticated to all 31 routes. That binary is closed
+   vendor code, not in this repository, and is the component the strip plans to remove.
+2. **The socket mode is the outer gate.** `/run/kvmd/kvmd.sock` is 0660
+   (`apps/__init__.py:422-424`), so connecting at all requires the right group. The
+   exe check is the only thing between "in that group" and "authenticated" — a coarser
+   boundary than a per-binary allowlist suggests.
+
+The check is also not atomic: `SO_PEERCRED` captures the pid at connect time while
+`/proc/<pid>/exe` is read per request, which on a keep-alive connection can be much
+later. No practical race follows, because winning it means executing as a root-owned
+binary, but the property that makes it safe is filesystem ownership of the allowlisted
+paths rather than anything in the check itself.
+
+*verified · `htserver.py:324-349`, `api/auth.py:146-159`, `apps/__init__.py:422-424`, `configs/nginx/kvmd.ctx-http.conf:5-7`*
 
 ## 4. Comparison — upstream already solved three of these
 
