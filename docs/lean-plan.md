@@ -326,6 +326,28 @@ So step 4 was a product decision — this project replaces TOTP with WebAuthn in
 - `htserver.py` — upstream 541, fork 569, **136 diff lines**. Unchanged by this work and still the cheapest rebase available.
 - `api/auth.py` — upstream 150, fork 290, **214 diff lines**. Now the LARGEST remaining divergence in the auth stack, having overtaken auth.py. It still holds `/same_check`, the query-token acceptance (R5.9) and the header-parsing call sites. Whatever is decided for auth.py, this file needs its own pass.
 
+### BLOCKER: the auth.py rebase is not isolatable — the 39-line measurement measured the wrong thing
+
+Found on starting Task 1, before any edit. The 39-line / 10-hunk figure for `auth.py` is correct **as a file comparison** and misleading **as a rebase estimate**, because upstream's `auth.py` cannot be dropped into this tree at all. Line 102 and 111 of upstream's `auth.py` construct the auth services like this:
+
+    self.__int_service = get_auth_service_class(int_c.type)(int_c)
+
+Upstream passes a `yamlconf.Section`. The fork passes `**kwargs`. That is not a difference inside `auth.py`; it is a **plugin-construction contract** that upstream changed at its root: `BasePlugin.__init__` went from `(self, **_: Any)` to `(self, c: Section)` (`plugins/__init__.py:36` in both trees). Upstream's `auth.py` therefore requires upstream's plugins, and upstream's plugins require upstream's `BasePlugin`, which every other plugin family inherits.
+
+The real scopes, measured against `15bccd5`:
+
+| scope | files | diff lines | also needs |
+|---|---:|---:|---|
+| `auth.py` alone | 1 | 199 | **does not work** — calls a contract the fork lacks |
+| auth family only | 7 | **401** | config schema reshape (`internal`/`external` → Section), `apps/kvmd/__init__.py:111-116`, plugin tests, `test_auth.py` |
+| full contract | ~37 | 401 + the rest | `BasePlugin`, all 5 plugin families (auth 7, atx 4, hid 3, msd 2, ugpio 19), and the `**kwargs` construction at `apps/kvmd/__init__.py:85, 141, 142` |
+
+And most of the auth-family divergence is in backends this device never loads. The default internal service is `htpasswd` (`apps/__init__.py:437`), and `htpasswd.py` is only **16** diff lines. The other 151 lines are `http.py` (74), `ldap.py` (46) and `radius.py` (31) — upstream feature work on backends an RM1PE does not use.
+
+**Recommendation: port upstream's auth.py BEHAVIOUR into the fork's auth.py, keeping the fork's plugin contract.** That captures what the rebase was actually for — the WS-session lifecycle (`start_ws_session` / `stop_ws_session` / `__renew_ws_session` with the `extend` flag and `_Session.expire_req` / `ws_started`), `sysprep()`, and the session-expiry handling — in one file, without reshaping the config schema or migrating five auth backends. It leaves the full contract migration exactly as available as it is today, and it does not pretend that "131 releases of auth hardening" lands in `auth.py`: for a device on htpasswd, most of it lands in backends that are dead weight here.
+
+Do NOT proceed with either rebase scope without an explicit decision. The approved decision was made on the isolated-file number, and none of the three options above is "one commit".
+
 ### Does auth.py get rebased onto 4.213, or patched in place?
 
 **STILL DEFERRED, and the deferral condition has NOT been met.** Steps 4, 5 and 10 have not run — only step 3 (the strip) and the client-identity part of step 10 are done — so the honest answer is that there is nothing new to measure yet. What has changed is that the projection is now quantified rather than guessed:
