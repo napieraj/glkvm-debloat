@@ -695,6 +695,63 @@ as good as the password, and a password set before the hashing fix was stored we
 
 *Recorded 2026-09-09, on branch `claude/glkvm-status-hutk39`*
 
+## 3e. WebAuthn — the threat that shaped the design, and the gap it accepts
+
+Recorded on the WebAuthn branch before integration. The first entry describes a hole
+that was closed BEFORE shipping; it is written down anyway, because the mitigation looks
+like an arbitrary restriction until you know what it stops, and the obvious
+"simplification" reopens it.
+
+### THREAT (mitigated pre-ship) — cross-device assertion relay via a suffix-matched origin
+
+The fleet design puts the WebAuthn RP ID at the **parent domain**, deliberately: one
+credential registered once then asserts on every device, with no per-device registration
+ceremony. That part is correct and is kept.
+
+The trap is the natural next step — accepting any origin under that domain. If a device
+accepts `https://<anything>.oskar.co` as the assertion origin, then anything serving
+HTTPS under the parent domain becomes a relay:
+
+1. the attacker's page fetches a challenge from device A;
+2. it invokes WebAuthn at its own origin, `https://evil.oskar.co`, and the browser
+   happily signs — the RP ID matches, so the credential is in scope;
+3. it replays the assertion to device A.
+
+Every check a naive verifier makes passes: the signature verifies against the enrolled
+public key, `rpIdHash` matches the RP ID, and the challenge is the one A issued. The
+`origin` field inside `clientDataJSON` is the only thing that distinguishes the relay
+from a genuine login, and suffix-matching is exactly the check that throws it away.
+
+**Mitigation, verified in code:** the RP ID is fleet-wide, and the accepted **origin is
+pinned per device** — an exact-membership test against a tuple, with no `endswith`,
+`startswith`, `fnmatch` or regex path anywhere in the module. Confirmed by mutation:
+disabling the origin comparison turns three tests red, including a
+`https://evil.oskar.co` case that is a sibling under the same RP ID.
+
+**Do not "simplify" this to suffix matching.** It reads like redundant strictness next to
+the `rpIdHash` check and it is not; the `rpIdHash` check cannot see the difference.
+
+### ACCEPTED GAP — WebAuthn clone detection resets on every kvmd restart
+
+WebAuthn's replay/clone signal is `signCount`: an authenticator increments it on each
+assertion, and a relying party flags a count that fails to advance. Persisting it
+requires writing to the credential store, and this store is delivered read-only by the
+enrolment ticket (`chmod 444`) precisely so that a compromised device cannot rewrite its
+own credential set.
+
+So the counter is held as an in-memory high-water mark seeded from the file. Clone
+detection works within one kvmd process and starts over when the daemon restarts: an
+assertion from a cloned authenticator after a restart will not be flagged.
+
+Accepted deliberately — the alternative is a writable credential store on the device,
+which is a worse trade. But it is a real reduction against the WebAuthn threat model, so
+it is written where an operator will see it (`README.md`) as well as in the design
+(`docs/webauthn.md` §7.3), and not only in a design section nobody re-reads. The
+operational consequence: `signCount` is not a control to rely on. A suspected clone is
+handled by re-issuing the enrolment ticket, not by waiting for a counter warning.
+
+*verified · `kvmd/plugins/auth/webauthn.py`, origin check and the `_Pending` store; mutation-tested*
+
 ## 4. Comparison — upstream already solved three of these
 
 The most useful result of the comparison is not the count. It is that the correct

@@ -21,6 +21,29 @@
 > Step 0's own instruction — re-derive line numbers at HEAD rather than
 > trusting the ones written here — now applies to this document itself.
 
+> **TWO BUILD HAZARDS, both of which have bitten twice in this project.**
+>
+> **1. The local flake8 gate does not catch dead code.** flake8 reports unused
+> IMPORTS (F401); it says nothing about an unused module-level function or
+> class. Finding those needs `vulture`, which is in the tox envlist
+> (`testenv/tox.ini`) and is NOT installed in the usual working container. Two
+> consequences. Removing dead code will often leave the lint count unchanged —
+> that is not evidence the removal was unnecessary. And a deletion pass that
+> orphans helpers will pass every gate you can run locally: the lockout
+> deletion left three `valid_rate_limit_*` validators behind in
+> `validators/auth.py` with zero callers, the flake8 count did not move, and
+> they were only found later by someone reading the file. `make tox` remains
+> the only gate that would have caught it.
+>
+> **2. Never put a non-zero-exiting linter before a command that must run in an
+> `&&` chain.** `flake8` exits 1 whenever it reports findings, and this project
+> always has findings. So
+> `git stash && flake8 > out && git stash pop` does NOT pop — the chain
+> short-circuits at flake8 and the working tree is left stashed, which looks
+> exactly like the edits were never made. It happened; the whole of Task 2 sat
+> in `stash@{0}` for several minutes while the tests reported failures that
+> made no sense. Use `;` between such steps, or run the linter last.
+
 > **A PARTIAL TESTENV GIVES A FALSE GREEN. Read this before believing any
 > "the tests pass" claim, including your own.**
 >
