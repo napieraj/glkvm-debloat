@@ -1,11 +1,5 @@
 DELETE /streamer/snapshot auth=True usc=True exe=-
 DELETE /system/clients/{client_id} auth=True usc=True exe=/usr/sbin/gl_kvm_gui
-GET /2fa/create auth=True usc=True exe=-
-GET /2fa/delete auth=True usc=True exe=-
-GET /2fa/init auth=True usc=True exe=-
-GET /2fa/is_enabled auth=False usc=True exe=-
-GET /2fa/show auth=True usc=True exe=-
-GET /2fa/verify auth=True usc=True exe=-
 GET /ap/status auth=True usc=True exe=-
 GET /atx auth=True usc=True exe=-
 GET /auth/check auth=True usc=False exe=-

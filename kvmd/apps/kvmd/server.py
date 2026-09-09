@@ -81,7 +81,6 @@ from .api.auth import AuthApi
 from .api.auth import check_request_auth
 
 from .api.init import InitApi
-from .api.twofa import TwoFaApi
 from .api.fingerbot import FingerbotApi
 from .api.repeater import RepeaterApi
 from .api.modem import ModemApi
@@ -219,7 +218,6 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
             self,
             AuthApi(auth_manager),
             InitApi(init_manager),
-            TwoFaApi(),
             self.__fingerbot_api,
             WolApi(),
             self.__repeater_api,
