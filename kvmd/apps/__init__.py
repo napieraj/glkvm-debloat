@@ -454,9 +454,6 @@ def _get_config_scheme() -> dict:
                     "lockout_duration":  Option(600,  type=valid_rate_limit_lockout_duration),
                 },
 
-                "two_step_login": {
-                    "enabled": Option(False, type=valid_bool),
-                },
             },
 
             "info": {  # Accessed via global config, see kvmd/info for details

@@ -50,7 +50,6 @@ from ....validators.auth import valid_auth_token
 
 from ..auth import AuthManager
 
-from .config_utils import set_yaml_value as _set_yaml_value
 
 
 # =====
@@ -211,36 +210,18 @@ class AuthApi:
                     client_ip, device_type, browser, user_agent,
                 )
 
-                # Check if two-step login is enabled
-                if self.__auth_manager.is_two_step_login_enabled():
-                    two_step_token = await self.__auth_manager.pre_login(
-                        user=user,
-                        passwd=passwd,
-                        expire=expire,
-                        client_ip=client_ip,
-                        user_agent=user_agent,
-                    )
-                    if two_step_token:
-                        return make_json_response({
-                            "two_step_required": True,
-                            "two_step_token": two_step_token,
-                            "expires_in": self.__auth_manager.get_two_step_expire(),
-                        })
-                    raise ForbiddenError()
-                else:
-                    # Original single-step login
-                    (token, failed_since_last_success) = await self.__auth_manager.login(
-                        user=user,
-                        passwd=passwd,
-                        expire=expire,
-                        client_ip=client_ip,
-                    )
-                    if token:
-                        return make_json_response({
-                            "token": token,
-                            "failed_since_last_success": failed_since_last_success,
-                        }, set_cookies={_COOKIE_AUTH_TOKEN: token})
-                    raise ForbiddenError()
+                (token, failed_since_last_success) = await self.__auth_manager.login(
+                    user=user,
+                    passwd=passwd,
+                    expire=expire,
+                    client_ip=client_ip,
+                )
+                if token:
+                    return make_json_response({
+                        "token": token,
+                        "failed_since_last_success": failed_since_last_success,
+                    }, set_cookies={_COOKIE_AUTH_TOKEN: token})
+                raise ForbiddenError()
             except RateLimitError as ex:
                 # Return 429 Too Many Requests for rate limiting
                 return make_json_response({
@@ -270,92 +251,6 @@ class AuthApi:
     @exposed_http("GET", "/auth/check", allow_usc=False)
     async def __check_handler(self, _: Request) -> Response:
         return make_json_response()
-
-    @exposed_http("POST", "/auth/two_step_complete", auth_required=False, allow_usc=False)
-    async def __two_step_complete_handler(self, req: Request) -> Response:
-        """两步登录第二步：用临时 token 换取正式 token"""
-        if self.__auth_manager.is_auth_enabled():
-            data = await req.post()
-            two_step_token = data.get("two_step_token", "").strip()
-
-            if not two_step_token:
-                return make_json_response({
-                    "error": "BadRequest",
-                    "error_msg": "Missing two_step_token parameter"
-                }, status=400)
-
-            (token, status, failed_since_last_success) = self.__auth_manager.complete_two_step_login(two_step_token)
-            if status == "ok":
-                return make_json_response({
-                    "token": token,
-                    "failed_since_last_success": failed_since_last_success,
-                }, set_cookies={_COOKIE_AUTH_TOKEN: token})
-            elif status == "pending":
-                return make_json_response({"status": "pending"})
-            else:
-                # "expired" or "invalid"
-                raise ForbiddenError()
-        return make_json_response()
-
-    @exposed_http("GET", "/auth/two_step_pending", auth_required=False, allow_usc=False, allowed_exe_paths=["/usr/sbin/gl_kvm_gui"])
-    async def __two_step_pending_handler(self, _: Request) -> Response:
-        #获取待审批的两步登录信息
-        pending = self.__auth_manager.get_pending_two_step_session()
-        if pending:
-            return make_json_response({"pending": True, **pending})
-        return make_json_response({"pending": False})
-
-    @exposed_http("POST", "/auth/two_step_approve", auth_required=False, allow_usc=False, allowed_exe_paths=["/usr/sbin/gl_kvm_gui"])
-    async def __two_step_approve_handler(self, req: Request) -> Response:
-        #批准两步登录请求
-        data = await req.post()
-        two_step_token = data.get("two_step_token", "").strip()
-
-        if not two_step_token:
-            return make_json_response({
-                "approved": False,
-                "error": "Missing two_step_token parameter"
-            }, status=400)
-
-        approved = self.__auth_manager.approve_two_step_session(two_step_token)
-        return make_json_response({"approved": approved})
-
-    @exposed_http("POST", "/auth/two_step_reject", auth_required=False, allow_usc=False, allowed_exe_paths=["/usr/sbin/gl_kvm_gui"])
-    async def __two_step_reject_handler(self, req: Request) -> Response:
-        #拒绝两步登录请求
-        data = await req.post()
-        two_step_token = data.get("two_step_token", "").strip()
-
-        if not two_step_token:
-            return make_json_response({
-                "rejected": False,
-                "error": "Missing two_step_token parameter"
-            }, status=400)
-
-        rejected = self.__auth_manager.reject_two_step_session(two_step_token)
-        return make_json_response({"rejected": rejected})
-
-    @exposed_http("GET", "/auth/two_step_login", auth_required=True, allow_usc=False, allowed_exe_paths=["/usr/sbin/gl_kvm_gui"])
-    async def __two_step_login_get_handler(self, _: Request) -> Response:
-        """查询两步登录功能的启用状态"""
-        return make_json_response({
-            "enabled": self.__auth_manager.is_two_step_login_enabled()
-        })
-
-    @exposed_http("POST", "/auth/two_step_login", auth_required=True, allow_usc=False, allowed_exe_paths=["/usr/sbin/gl_kvm_gui"])
-    async def __two_step_login_put_handler(self, req: Request) -> Response:
-        """动态启用或关闭两步登录功能"""
-        data = await req.json()
-        enabled = data.get("enabled")
-        if not isinstance(enabled, bool):
-            return make_json_response({
-                "error": "BadRequest",
-                "error_msg": "Missing or invalid 'enabled' field (must be JSON boolean)"
-            }, status=400)
-        self.__auth_manager.set_two_step_login_enabled(enabled)
-        # 持久化到 boot.yaml，重启后状态不丢失
-        await _set_yaml_value("kvmd/auth/two_step_login/enabled", enabled)
-        return make_json_response({"enabled": enabled})
 
     @exposed_http("GET", "/auth/rate_limit_status")
     async def __rate_limit_status_handler(self, req: Request) -> Response:

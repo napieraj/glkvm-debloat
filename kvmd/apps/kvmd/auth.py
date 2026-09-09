@@ -36,7 +36,6 @@ from aiohttp.web import BaseRequest
 from ...logging import get_logger
 
 from ... import aiotools
-from ... import tools
 
 from ...plugins.auth import BaseAuthService
 from ...plugins.auth import get_auth_service_class
@@ -56,22 +55,6 @@ class _Session:
         assert self.user == self.user.strip()
         assert self.user
         assert self.expire_ts >= 0
-
-
-@dataclasses.dataclass
-class _TwoStepSession:
-    user: str
-    expire_ts: float       # 使用 time.time() 绝对时间戳
-    original_expire: int   # 原始请求的 expire 参数
-    client_ip: str         # 客户端 IP
-    user_agent: str        # 浏览器 User-Agent
-    device_type: str       # 设备类型 (Mobile/Tablet/PC/Unknown)
-    browser: str           # 浏览器名称
-    approved: bool = False # 是否已审批通过
-
-    def __post_init__(self) -> None:
-        assert self.user == self.user.strip()
-        assert self.user
 
 
 @dataclasses.dataclass
@@ -115,8 +98,6 @@ class AuthManager:  # pylint: disable=too-many-arguments,too-many-instance-attri
         rate_limit_max_attempts: int = 10,
         rate_limit_time_window: int = 600,
         rate_limit_lockout_duration: int = 600,
-
-        two_step_login_enabled: bool = False,
     ) -> None:
 
         logger = get_logger(0)
@@ -176,14 +157,6 @@ class AuthManager:  # pylint: disable=too-many-arguments,too-many-instance-attri
                         self.__rate_limit_max_attempts,
                         self.__rate_limit_time_window,
                         self.__rate_limit_lockout_duration)
-
-        # Two-step login
-        self.__two_step_login_enabled = two_step_login_enabled
-        self.__two_step_sessions: dict[str, _TwoStepSession] = {}  # {two_step_token: session}
-        self.__two_step_expire = 60  # 1 minute
-
-        if self.__two_step_login_enabled:
-            logger.info("Two-step login is enabled")
 
     def is_auth_enabled(self) -> bool:
         return self.__enabled
@@ -366,181 +339,6 @@ class AuthManager:  # pylint: disable=too-many-arguments,too-many-instance-attri
                     session.expire_ts = now + self.__expire
                 return True
         return False
-
-    def is_two_step_login_enabled(self) -> bool:
-        return self.__two_step_login_enabled
-
-    def get_two_step_expire(self) -> int:
-        return self.__two_step_expire
-
-    def set_two_step_login_enabled(self, enabled: bool) -> None:
-        self.__two_step_login_enabled = enabled
-        if not enabled:
-            self.__two_step_sessions.clear()
-        get_logger(0).info("Two-step login %s", "enabled" if enabled else "disabled")
-
-    async def pre_login(self, user: str, passwd: str, expire: int, client_ip: str = 'unknown', user_agent: str = '') -> (str | None):
-        """两步登录第一步：验证用户名密码，返回临时 token"""
-        assert user == user.strip()
-        assert user
-        assert expire >= 0
-        assert self.__enabled
-
-        # Check if client is rate limited
-        if self.__rate_limit_enabled:
-            is_locked, remaining_time = await self._is_client_locked(client_ip)
-            if is_locked:
-                get_logger(0).warning("Rate limit: Login attempt blocked for client %s, %d seconds remaining",
-                                      client_ip, remaining_time)
-                raise RateLimitError(
-                    f"Too many failed login attempts. Please try again in {remaining_time} seconds.",
-                    remaining_time
-                )
-
-        # Perform cleanup periodically
-        if hash(client_ip) % 100 == 0:
-            self._cleanup_two_step_sessions()
-
-        if (await self.authorize(user, passwd)):
-            two_step_token = self.__make_new_two_step_token()
-            # 在创建时就解析 user_agent
-            from ...utils import parse_user_agent  # pylint: disable=import-outside-toplevel
-            device_type, browser = parse_user_agent(user_agent)
-            session = _TwoStepSession(
-                user=user,
-                expire_ts=time.time() + self.__two_step_expire,
-                original_expire=expire,
-                client_ip=client_ip,
-                user_agent=user_agent,
-                device_type=device_type,
-                browser=browser,
-                approved=False,
-            )
-            self.__two_step_sessions[two_step_token] = session
-            get_logger(0).info("Pre-login successful for user %r from %s; two_step_token issued, expires in %ds",
-                               user, client_ip, self.__two_step_expire)
-
-            aiotools.create_short_task(tools.run_command("killall", "-SIGUSR2", "gl_kvm_gui", timeout=5))
-
-            return two_step_token
-        else:
-            self.__failed_since_last_success += 1
-            # Record failed attempt for rate limiting
-            if self.__rate_limit_enabled:
-                await self._record_failed_attempt(client_ip)
-                is_locked, remaining_time = await self._is_client_locked(client_ip)
-                if is_locked:
-                    raise RateLimitError(
-                        f"Account temporarily locked due to too many failed attempts. Please try again in {remaining_time} seconds.",
-                        remaining_time
-                    )
-        return None
-
-    def complete_two_step_login(self, two_step_token: str) -> tuple[str | None, str, int]:
-        """两步登录第二步：用临时 token 换取正式 token
-        返回 (token, status, failed_since_last_success):
-            - (token, "ok", N)   — 审批通过，返回正式 token，N 为自上次成功登录以来的失败次数
-            - (None, "pending", 0)  — 尚未审批，前端应继续轮询
-            - (None, "expired", 0)  — 临时 token 已过期
-            - (None, "invalid", 0)  — 临时 token 无效（不存在或已被拒绝）
-        """
-        assert self.__enabled
-
-        session = self.__two_step_sessions.get(two_step_token)
-        if session is None:
-            get_logger(0).warning("Two-step login failed: invalid token")
-            return (None, "invalid", 0)
-
-        current_time = time.time()
-        if current_time > session.expire_ts:
-            del self.__two_step_sessions[two_step_token]
-            get_logger(0).warning("Two-step login failed: token expired for user %r", session.user)
-            return (None, "expired", 0)
-
-        # 检查是否已审批
-        if not session.approved:
-            return (None, "pending", 0)
-
-        # Token valid and approved, remove it and issue real token
-        del self.__two_step_sessions[two_step_token]
-
-        token = self.__make_new_token()
-        real_session = _Session(
-            user=session.user,
-            expire_ts=self.__make_expire_ts(session.original_expire),
-        )
-        self.__sessions[token] = real_session
-        failed_since_last = self.__consume_failed_since_last_success()
-        get_logger(0).info("Two-step login completed for user %r; expire=%s, sessions_now=%d, failed_since_last_success=%d",
-                           real_session.user,
-                           self.__format_expire_ts(real_session.expire_ts),
-                           self.__get_sessions_number(real_session.user),
-                           failed_since_last)
-        return (token, "ok", failed_since_last)
-
-    def __make_new_two_step_token(self) -> str:
-        for _ in range(10):
-            token = "2s_" + secrets.token_hex(32)  # Prefix to distinguish from regular tokens
-            if token not in self.__two_step_sessions:
-                return token
-        raise RuntimeError("Can't generate new unique two-step token")
-
-    def _cleanup_two_step_sessions(self) -> None:
-        """Clean up expired two-step sessions"""
-        current_time = time.time()
-        expired_tokens = [
-            token for token, session in self.__two_step_sessions.items()
-            if current_time > session.expire_ts
-        ]
-        for token in expired_tokens:
-            del self.__two_step_sessions[token]
-
-    def get_pending_two_step_session(self) -> (dict | None):
-        """获取最后一个待审批的两步登录 session 信息"""
-        current_time = time.time()
-        # 清理过期的 session
-        self._cleanup_two_step_sessions()
-
-        # 找到最后一个未审批的 session
-        for token, session in reversed(list(self.__two_step_sessions.items())):
-            if not session.approved and current_time <= session.expire_ts:
-                return {
-                    "token": token,
-                    "user": session.user,
-                    "client_ip": session.client_ip,
-                    "user_agent": session.user_agent,
-                    "device_type": session.device_type,
-                    "browser": session.browser,
-                    "expires_in": int(session.expire_ts - current_time),
-                }
-        return None
-
-    def approve_two_step_session(self, two_step_token: str) -> bool:
-        """批准两步登录请求"""
-        session = self.__two_step_sessions.get(two_step_token)
-        if session is None:
-            get_logger(0).warning("Two-step approve failed: invalid token")
-            return False
-
-        if time.time() > session.expire_ts:
-            del self.__two_step_sessions[two_step_token]
-            get_logger(0).warning("Two-step approve failed: token expired")
-            return False
-
-        session.approved = True
-        get_logger(0).info("Two-step login approved for user %r from %s", session.user, session.client_ip)
-        return True
-
-    def reject_two_step_session(self, two_step_token: str) -> bool:
-        """拒绝两步登录请求"""
-        session = self.__two_step_sessions.get(two_step_token)
-        if session is None:
-            get_logger(0).warning("Two-step reject failed: invalid token")
-            return False
-
-        del self.__two_step_sessions[two_step_token]
-        get_logger(0).info("Two-step login rejected for user %r from %s", session.user, session.client_ip)
-        return True
 
     @aiotools.atomic_fg
     async def cleanup(self) -> None:

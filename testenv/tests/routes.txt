@@ -4,8 +4,6 @@ GET /atx auth=True usc=True exe=-
 GET /auth/check auth=True usc=False exe=-
 GET /auth/locked_clients auth=True usc=True exe=-
 GET /auth/rate_limit_status auth=True usc=True exe=-
-GET /auth/two_step_login auth=True usc=False exe=/usr/sbin/gl_kvm_gui
-GET /auth/two_step_pending auth=False usc=False exe=/usr/sbin/gl_kvm_gui
 GET /export/prometheus/metrics auth=True usc=True exe=-
 GET /fingerbot/battery auth=True usc=True exe=-
 GET /fingerbot/click auth=True usc=True exe=-
@@ -75,10 +73,6 @@ POST /atx/click auth=True usc=True exe=-
 POST /atx/power auth=True usc=True exe=-
 POST /auth/login auth=False usc=False exe=-
 POST /auth/logout auth=True usc=False exe=-
-POST /auth/two_step_approve auth=False usc=False exe=/usr/sbin/gl_kvm_gui
-POST /auth/two_step_complete auth=False usc=False exe=-
-POST /auth/two_step_login auth=True usc=False exe=/usr/sbin/gl_kvm_gui
-POST /auth/two_step_reject auth=False usc=False exe=/usr/sbin/gl_kvm_gui
 POST /auth/unlock_client auth=True usc=True exe=-
 POST /fingerbot/upgrade auth=True usc=True exe=-
 POST /fingerbot/upload auth=True usc=True exe=-

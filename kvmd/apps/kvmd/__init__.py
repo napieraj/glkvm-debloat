@@ -121,7 +121,6 @@ def main(argv: (list[str] | None)=None) -> None:
             rate_limit_time_window=config.auth.rate_limit.time_window,
             rate_limit_lockout_duration=config.auth.rate_limit.lockout_duration,
 
-            two_step_login_enabled=config.auth.two_step_login.enabled,
         ),
         init_manager=InitManager(),
         info_manager=InfoManager(global_config),
