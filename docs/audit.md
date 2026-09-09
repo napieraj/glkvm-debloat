@@ -7,8 +7,8 @@ Every security defect found in it lives in code PiKVM never wrote.
 
 | | |
 |---|---|
-| **Fork** | `gl-inet/glkvm` @ `3e8dd23` (fork v1.10.0, kvmd 4.16) |
-| **Upstream** | `pikvm/kvmd` @ `15bccd5` |
+| **Fork** | `gl-inet/glkvm` @ `3e8dd23` (fork v1.10.0, kvmd **4.82**) |
+| **Upstream** | `pikvm/kvmd` @ `15bccd5` (kvmd **4.213**, 2026-09-08) |
 | **Scope** | Static analysis of two source trees. No physical device. |
 
 **Key figures**
@@ -18,7 +18,7 @@ Every security defect found in it lives in code PiKVM never wrote.
 | API layer growth | **6.5×** — 11,436 lines of route code against upstream's 1,769 |
 | New tests for it | **0** — roughly 9,700 added API lines ship with no test of their own |
 | Lint, identical config | **742** violations of the fork's own checked-in flake8 rules (upstream: none) |
-| Findings, all fork-only | **18** — three reach root, two of them without credentials |
+| Findings, all fork-only | **19** — three reach root, two of them without credentials; one is structural rather than a defect |
 
 ---
 
@@ -80,7 +80,7 @@ whitespace-on-blank-line, 75 missing-space-after-comma and 71 unused imports.
 
 ---
 
-## 3. Security — eighteen findings, three of them reach root
+## 3. Security — nineteen findings, three of them reach root
 
 Severity here is consequence on a device whose stated job is out-of-band access to
 other machines. A defect that yields a root shell on the KVM yields the console of
@@ -452,6 +452,73 @@ binary, but the property that makes it safe is filesystem ownership of the allow
 paths rather than anything in the check itself.
 
 *verified · `htserver.py:324-349`, `api/auth.py:146-159`, `apps/__init__.py:422-424`, `configs/nginx/kvmd.ctx-http.conf:5-7`*
+
+## 3c. Provenance, measured — and the version the fork froze at
+
+### The dividing line, counted
+
+Section 1 argues from module names that every finding is fork-introduced. This is
+the same claim measured. Each row is a `grep -rn` over `kvmd/` in both trees at the
+commits in the header:
+
+| Identifier | Upstream `pikvm/kvmd` @ `15bccd5` | Fork `gl-inet/glkvm` @ `3e8dd23` |
+|---|---:|---:|
+| `init/init` | 0 | 1 |
+| `ssh_key` | 0 | 16 |
+| `authorized_keys` | 0 | 3 |
+| `ssl_cert` | 0 | 43 |
+| `reset_default` | 0 | 5 |
+| `same_check` | 0 | 2 |
+| `rate_limit` | 0 | 56 |
+| `unlock_client` | 0 | 4 |
+| `two_step` | 0 | 74 |
+
+Nine identifiers behind the critical and high findings above, and every one of them
+is absent from upstream entirely — not "implemented differently", not "renamed", but
+zero occurrences in the whole of `kvmd/`. This is not an argument about coding
+standards. It is the difference between a project that did not write this code and a
+vendor that did.
+
+### HIGH — the fork froze the shared base 131 releases ago
+
+`kvmd/__init__.py:23` reports `__version__ = "4.82"`. Upstream's same line is
+`"4.213"`. The fork is 131 releases behind on the base it shares with upstream, and
+that base is not vendor-specific code — it is `auth.py`, `htserver.py`, `validators/`,
+the MSD and HID plugins, the streamer client.
+
+Every upstream fix in that span — security or otherwise — is absent unless someone
+backported it by hand, and nothing in the repository suggests anyone did: there is no
+backport branch, no CHANGELOG entry referencing an upstream commit, and no comment
+anywhere in `kvmd/` citing one. This is exposure of a different kind from the findings
+above. Those are specific defects that can each be fixed; this is a standing
+commitment to miss whatever upstream finds next, in the files the fork did not write
+and does not track.
+
+Worth noting the fork does not agree with itself about its own version. `PKGBUILD:42`
+says `pkgver=4.16` and `.bumpversion.cfg:4` says `current_version = 4.16`, while the
+code says 4.82. Those two are upstream PiKVM's Arch packaging, which does not build
+this device's image, so 4.82 is the number that describes the running daemon — but a
+tree that reports three different versions of itself in three files cannot answer
+"what are we running" without someone reading the source.
+
+*fork-only · verified · `kvmd/__init__.py:23` in both trees; `PKGBUILD:42`, `.bumpversion.cfg:4`*
+
+### The remediation for the identity finding is already in the tree
+
+The HIGH finding on header-derived identity has a fix that needs no design work and no
+upstream port. Upstream resolves the peer from the transport socket at
+`htserver.py:302-313`:
+
+    sock = req.transport.get_extra_info("socket")           # upstream htserver.py:305
+    data = sock.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, ...)
+
+The fork already has that function, byte-for-byte, at its own `htserver.py:324-338` —
+it is what `get_request_exe_path` is built on, and section 3b establishes it works. So
+the position is not "upstream has code the fork lacks". It is that the fork carries a
+correct socket-peer resolver and a header-parsing `_get_client_ip` (`auth.py:594`) at
+the same time, and every authorisation decision was wired to the wrong one.
+
+*verified · upstream `htserver.py:302-313`, fork `htserver.py:324-338` vs `auth.py:594-607`*
 
 ## 4. Comparison — upstream already solved three of these
 
