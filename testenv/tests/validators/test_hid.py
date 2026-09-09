@@ -24,7 +24,7 @@ from typing import Any
 
 import pytest
 
-from kvmd.keyboard.mappings import KEYMAP
+from kvmd.keyboard.mappings import WEB_TO_EVDEV
 
 from kvmd.validators import ValidatorError
 from kvmd.validators.hid import valid_hid_key
@@ -35,7 +35,9 @@ from kvmd.validators.hid import valid_hid_mouse_delta
 
 # =====
 def test_ok__valid_hid_key() -> None:
-    for key in KEYMAP:
+    # valid_hid_key checks against WEB_TO_EVDEV, not KEYMAP: the fork re-keyed
+    # KEYMAP by evdev code, so iterating it yields ints rather than key names.
+    for key in WEB_TO_EVDEV:
         print(valid_hid_key(key))
         print(valid_hid_key(key + " "))
 

@@ -23,13 +23,17 @@
 import pytest
 
 from kvmd.keyboard.mappings import KEYMAP
+from kvmd.keyboard.mappings import WEB_TO_EVDEV
 
 
 # =====
+# The fork re-keyed KEYMAP by evdev code (dict[int, Key], mappings.py:46);
+# upstream keyed it by the web name directly. WEB_TO_EVDEV (mappings.py:165)
+# is now the name-to-code hop, and is what valid_hid_key validates against.
 def test_ok__keymap() -> None:
-    assert KEYMAP["KeyA"].mcu.code == 1
+    assert KEYMAP[WEB_TO_EVDEV["KeyA"]].mcu.code == 1
 
 
 def test_fail__keymap() -> None:
     with pytest.raises(KeyError):
-        print(KEYMAP["keya"])
+        print(WEB_TO_EVDEV["keya"])
