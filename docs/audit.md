@@ -360,6 +360,32 @@ header-bypassable — worth tightening if this route is kept for the beacon.
 
 *fork-only · verified · `api/auth.py:384–420`, gate at `:389`, header identity at `auth.py:594` (as found); rebuilt on this branch*
 
+### LOW — The session cookie was set without the Secure flag
+
+`make_json_response`'s cookie writer set `httponly=True` and `samesite="Strict"` and
+omitted `secure`, so the session cookie was eligible to be sent over plain HTTP. The
+`SameSite=Strict` attribute is what the factory-reset finding above relies on for its
+cross-site mitigation; `Secure` is the orthogonal half and was missing.
+
+Exposure was limited but real. `nginx/https/enabled` defaults to True and the plain-HTTP
+server block then only issues a 301, so the default deployment never sends the cookie in
+clear. But that option is configurable, and with it False the **entire** API including
+login is served over port 80 — in which case the cookie crossed the network unprotected
+with nothing marking it as sensitive.
+
+**FIXED on this branch, conditionally.** Setting `Secure` unconditionally would have
+broken the `https.enabled: False` deployment in the worst way available: the browser
+declines to store the cookie, so login appears to succeed and no session is ever
+established, with no error logged anywhere. Instead `is_request_secure()` asks whether
+the ORIGINAL request arrived over TLS. kvmd listens only on a Unix socket so it never
+sees the client's scheme itself; nginx forwards it as `X-Forwarded-Proto`
+(`configs/nginx/loc-proxy.conf`), and that header is trusted for exactly the reason
+established by the identity finding above — only a local process in the socket's group
+can set it, so the peer check gates it. Five tests cover both branches and the
+untrusted-peer case.
+
+*fork-only · verified · `htserver.py:198` (as found); fixed on this branch*
+
 ### MEDIUM — A web terminal ships enabled
 
 The device serves a browser terminal backed by `ttyd`, wired through the UI and

@@ -37,6 +37,7 @@ from ....htserver import exposed_http
 from ....htserver import make_json_response
 from ....htserver import set_request_auth_info
 from ....htserver import get_request_unix_credentials
+from ....htserver import is_request_secure
 from ....htserver import get_request_exe_path
 
 from ....logging import get_logger
@@ -258,7 +259,8 @@ class AuthApi:
                 return make_json_response({
                     "token": token,
                     "failed_since_last_success": failed_since_last_success,
-                }, set_cookies={_COOKIE_AUTH_TOKEN: token})
+                }, set_cookies={_COOKIE_AUTH_TOKEN: token},
+                    secure_cookies=is_request_secure(req))
             raise ForbiddenError()
         return make_json_response()
 

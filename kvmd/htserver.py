@@ -183,6 +183,7 @@ def make_json_response(
     status: int=200,
     set_cookies: (dict[str, str] | None)=None,
     wrap_result: bool=True,
+    secure_cookies: bool=False,
 ) -> Response:
 
     resp = Response(
@@ -195,7 +196,7 @@ def make_json_response(
     )
     if set_cookies:
         for (key, value) in set_cookies.items():
-            resp.set_cookie(key, value, httponly=True, samesite="Strict")
+            resp.set_cookie(key, value, httponly=True, samesite="Strict", secure=secure_cookies)
     return resp
 
 
@@ -298,6 +299,27 @@ AccessLogger._format_P = staticmethod(_format_P)  # type: ignore  # pylint: disa
 def set_request_auth_info(req: BaseRequest, info: str, token: str="") -> None:
     setattr(req, _REQUEST_AUTH_INFO, info)
     setattr(req, _REQUEST_AUTH_TOKEN, token)
+
+
+def is_request_secure(req: BaseRequest) -> bool:
+    """Whether the ORIGINAL client request arrived over TLS.
+
+    kvmd listens only on a Unix socket (kvmd/server has no host/port, see
+    apps/__init__.py), so the scheme it sees itself is never the client's.
+    nginx forwards the real one as X-Forwarded-Proto (configs/nginx/
+    loc-proxy.conf), and that header is trustworthy for the same reason
+    X-Real-IP is: only a local process in the socket's group can set it, which
+    the peer check below establishes.
+
+    Conditional rather than always-on because nginx/https/enabled is a real
+    config option (apps/__init__.py, default True). With it False the whole API
+    including login is served over plain HTTP, and an unconditional Secure
+    cookie would make that deployment fail to log in with no error anywhere —
+    the browser would simply decline to store the cookie.
+    """
+    if get_request_unix_credentials(req) is None:
+        return False
+    return (req.headers.get("X-Forwarded-Proto", "").strip().lower() == "https")
 
 
 def get_request_auth_token(req: BaseRequest) -> str:
