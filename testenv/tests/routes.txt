@@ -1,6 +1,5 @@
 DELETE /streamer/snapshot auth=True usc=True exe=-
 DELETE /system/clients/{client_id} auth=True usc=True exe=/usr/sbin/gl_kvm_gui
-GET /ap/status auth=True usc=True exe=-
 GET /atx auth=True usc=True exe=-
 GET /auth/check auth=True usc=False exe=-
 GET /auth/locked_clients auth=True usc=True exe=-
@@ -72,9 +71,6 @@ GET /wol/list auth=True usc=True exe=-
 GET /wol/scan auth=True usc=True exe=-
 GET /ws auth=True usc=True exe=-
 PATCH /redfish/v1/Systems/0 auth=True usc=True exe=-
-POST /ap/close_all_mode auth=True usc=True exe=-
-POST /ap/enable auth=True usc=True exe=-
-POST /ap/open_last_mode auth=True usc=True exe=-
 POST /atx/click auth=True usc=True exe=-
 POST /atx/power auth=True usc=True exe=-
 POST /auth/login auth=False usc=False exe=-

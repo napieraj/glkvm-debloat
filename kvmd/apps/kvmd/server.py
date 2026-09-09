@@ -82,7 +82,6 @@ from .api.auth import check_request_auth
 
 from .api.init import InitApi
 from .api.fingerbot import FingerbotApi
-from .api.ap import ApApi
 from .api.wol import WolApi
 from .api.system import SystemApi
 from .api.info import InfoApi
@@ -160,7 +159,6 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
     __EV_SWITCH_STATE = "switch"
     __EV_RNDIS_STATE = "rndis"
     __EV_FINGERBOT_STATE = "fingerbot"
-    __EV_AP_STATE = "ap"
     __EV_RECORDER_STATE = "recorder"
     __EV_SERIAL_STATE = "serial"
 
@@ -199,7 +197,6 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
         self.__switch = switch
         self.__fingerbot_api = FingerbotApi()
         self.__serial_api = SerialApi()
-        self.__ap_api = ApApi()
         self.__recorder_api = RecorderApi(streamer, msd)
         self.__hid_api = HidApi(hid, keymap_path)  # Ugly hack to get keymaps state
         self.__apis: list[object] = [
@@ -208,7 +205,6 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
             InitApi(init_manager),
             self.__fingerbot_api,
             WolApi(),
-            self.__ap_api,
             SystemApi(
                 get_wss_callback=self._get_wss,
                 close_ws_callback=self._close_ws_by_session,
@@ -243,7 +239,6 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
             # _Subsystem.make(switch,       "Switch",       self.__EV_SWITCH_STATE),
             _Subsystem.make(rndis,        "RNDIS",        self.__EV_RNDIS_STATE),
             _Subsystem.make(self.__fingerbot_api, "Fingerbot", self.__EV_FINGERBOT_STATE),
-            _Subsystem.make(self.__ap_api, "Ap", self.__EV_AP_STATE),
             _Subsystem.make(self.__recorder_api, "Recorder", self.__EV_RECORDER_STATE),
             _Subsystem.make(self.__serial_api, "Serial", self.__EV_SERIAL_STATE),
         ]
