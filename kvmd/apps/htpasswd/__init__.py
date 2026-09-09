@@ -27,7 +27,6 @@ import tempfile
 import contextlib
 import textwrap
 import argparse
-import passlib
 
 from typing import Generator
 
@@ -50,8 +49,15 @@ def _get_htpasswd_path(config: Section) -> str:
     return config.kvmd.auth.internal.file
 
 
+# NOTE: KvmdHtpasswdFile, not passlib.apache.HtpasswdFile. This helper is the
+# web/API write path (used by InitManager for initialisation and for
+# /init/change_password), and it used to build a plain HtpasswdFile, whose
+# default scheme is apr_md5_crypt. Every password a user actually set was
+# therefore stored as $apr1$ while kvmd-htpasswd, which nobody has to run,
+# stored {SSHA512}. Existing apr1 entries still verify: the KVMD context keeps
+# every apache scheme for reading and only changes what is WRITTEN.
 @contextlib.contextmanager
-def _get_htpasswd_for_write_from_file(path: str) -> Generator[passlib.apache.HtpasswdFile, None, None]:
+def _get_htpasswd_for_write_from_file(path: str) -> Generator[KvmdHtpasswdFile, None, None]:
     (tmp_fd, tmp_path) = tempfile.mkstemp(
         prefix=f".{os.path.basename(path)}.",
         dir=os.path.dirname(path),
@@ -65,13 +71,14 @@ def _get_htpasswd_for_write_from_file(path: str) -> Generator[passlib.apache.Htp
                 os.fchmod(tmp_fd, st.st_mode)
         finally:
             os.close(tmp_fd)
-        htpasswd = passlib.apache.HtpasswdFile(tmp_path)
+        htpasswd = KvmdHtpasswdFile(tmp_path)
         yield htpasswd
         htpasswd.save()
         os.rename(tmp_path, path)
     finally:
         if os.path.exists(tmp_path):
             os.remove(tmp_path)
+
 
 @contextlib.contextmanager
 def _get_htpasswd_for_write(config: Section) -> Generator[KvmdHtpasswdFile, None, None]:

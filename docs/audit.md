@@ -257,7 +257,17 @@ sets via `/init/init` is stored this way, and so is the legitimate owner's: anyo
 obtains `/etc/kvmd/user/htpasswd` — by any of the file-read paths in this audit —
 recovers the admin password rather than merely a hash they cannot use.
 
-*fork-only · verified · `apps/htpasswd/__init__.py:54` vs `crypto.py:51-58`, callers at `init.py:151, 183`*
+**FIXED on this branch.** `_get_htpasswd_for_write_from_file` now builds a
+`KvmdHtpasswdFile`, so the web and API paths write `{SSHA512}` like the CLI. Verified
+by writing through the helper and reading the file back. Existing `$apr1$` entries
+still authenticate — the KVMD context keeps every apache scheme for READING and only
+changes what is written — so a device upgraded in place keeps working and re-hashes each
+password the next time it is set. Note this closes the compounding described above only
+for passwords set from now on: an `htpasswd` file captured before the fix still contains
+apr1 hashes, so any device whose file may already have leaked should have its password
+changed, not merely be upgraded.
+
+*fork-only · verified · `apps/htpasswd/__init__.py:54` (as found) vs `crypto.py:51-58`, callers at `init.py:151, 183`; fixed on this branch*
 
 ### MEDIUM — Passwords travel in the query string, with the guard commented out
 
