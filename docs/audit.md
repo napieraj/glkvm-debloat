@@ -173,7 +173,18 @@ that value.
 The `'unknown'` fallback is its own problem: with no proxy in front, every client
 shares one bucket and they lock each other out.
 
-*fork-only · verified · `auth.py:594–607`*
+**FIXED on this branch.** `_get_client_ip` now takes the `Request` rather than a
+headers dict, so identifying a caller by its own headers is no longer expressible at
+the call site. `X-Real-IP` and `X-Forwarded-For` are honoured only when the immediate
+peer is trusted — a Unix socket peer, which is how nginx reaches kvmd, or loopback —
+and are ignored in favour of the transport address otherwise. The remediation was a
+call-site change, not a port: the fork already carried the correct socket-peer
+resolver at its own `htserver.py:324-338`, where `get_request_exe_path` has been using
+it all along, and every authorisation decision was simply wired to the other function.
+Six tests in `testenv/tests/apps/kvmd/test_auth.py` cover it, including a real
+`AF_UNIX` socketpair so `SO_PEERCRED` genuinely succeeds rather than being mocked.
+
+*fork-only · verified · `auth.py:594–607` (as found); fixed at `auth.py:595-645`*
 
 ### HIGH — The rate limiter runs for one percent of clients
 

@@ -22,8 +22,10 @@
 
 import os
 import contextlib
+import socket
 
 from typing import AsyncGenerator
+from typing import Any
 
 import passlib.apache
 
@@ -231,3 +233,95 @@ async def test_ok__disabled() -> None:
             manager.check("xxx")
     finally:
         await manager.cleanup()
+
+
+# =====
+# Client identity for rate limiting and the "local network only" gates.
+#
+# _get_client_ip used to take a headers dict, so every lockout decision, every
+# rate-limit decision and the unauthenticated /same_check gate were keyed on a
+# string the caller supplied. It now takes the REQUEST and honours X-Real-IP /
+# X-Forwarded-For only when the immediate peer is trusted -- a Unix socket
+# (which is how nginx reaches kvmd; kvmd/server has only a `unix` listener) or
+# loopback. From anywhere else the headers are ignored in favour of the
+# transport address.
+class _FakeTransport:
+    def __init__(self, sock: Any, peername: Any) -> None:
+        self.__sock = sock
+        self.__peername = peername
+
+    def get_extra_info(self, name: str, default: Any=None) -> Any:
+        if name == "socket":
+            return self.__sock
+        if name == "peername":
+            return self.__peername
+        return default
+
+
+class _FakeRequest:
+    def __init__(self, transport: Any, headers: (dict | None)=None) -> None:
+        self.transport = transport
+        self.headers = (headers or {})
+
+
+def _make_disabled_manager() -> AuthManager:
+    return AuthManager(
+        enabled=False,
+        expire=0,
+        usc_users=[],
+        usc_groups=[],
+        unauth_paths=[],
+
+        int_type="foobar",
+        int_kwargs={},
+        force_int_users=[],
+
+        ext_type="",
+        ext_kwargs={},
+
+        totp_secret_path="",
+    )
+
+
+def _client_ip(transport: Any, headers: (dict | None)=None) -> str:
+    manager = _make_disabled_manager()
+    return manager._get_client_ip(_FakeRequest(transport, headers))  # pylint: disable=protected-access
+
+
+def test_fail__spoofed_real_ip_is_ignored_from_a_remote_peer() -> None:
+    # A remote client claiming to be on the LAN. This is the exact bypass of
+    # the /same_check gate and of every rate-limit bucket.
+    transport = _FakeTransport(None, ("203.0.113.7", 54321))
+    assert _client_ip(transport, {"X-Real-IP": "192.168.1.1"}) == "203.0.113.7"
+
+
+def test_fail__spoofed_forwarded_for_is_ignored_from_a_remote_peer() -> None:
+    transport = _FakeTransport(None, ("203.0.113.7", 54321))
+    headers = {"X-Forwarded-For": "192.168.1.1, 10.0.0.1"}
+    assert _client_ip(transport, headers) == "203.0.113.7"
+
+
+def test_ok__real_ip_is_honoured_from_a_unix_peer() -> None:
+    # A real AF_UNIX socketpair, so SO_PEERCRED genuinely succeeds rather than
+    # being mocked. This is the nginx path.
+    (sock, other) = socket.socketpair(socket.AF_UNIX, socket.SOCK_STREAM)
+    try:
+        transport = _FakeTransport(sock, None)
+        assert _client_ip(transport, {"X-Real-IP": "10.1.2.3"}) == "10.1.2.3"
+    finally:
+        sock.close()
+        other.close()
+
+
+def test_ok__real_ip_is_honoured_from_loopback() -> None:
+    transport = _FakeTransport(None, ("127.0.0.1", 41234))
+    assert _client_ip(transport, {"X-Real-IP": "10.1.2.3"}) == "10.1.2.3"
+
+
+def test_ok__falls_back_to_the_peer_address_without_headers() -> None:
+    transport = _FakeTransport(None, ("203.0.113.7", 54321))
+    assert _client_ip(transport) == "203.0.113.7"
+
+
+def test_ok__unknown_without_a_transport() -> None:
+    assert _client_ip(None) == "unknown"

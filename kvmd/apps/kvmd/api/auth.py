@@ -196,7 +196,7 @@ class AuthApi:
             credentials = await req.post()
 
             # Get client IP for rate limiting
-            client_ip = self.__auth_manager._get_client_ip(dict(req.headers))
+            client_ip = self.__auth_manager._get_client_ip(req)
 
             try:
                 user = valid_user(credentials.get("user", ""))
@@ -363,7 +363,7 @@ class AuthApi:
             client_ip = req.query.get("client_ip")
             if not client_ip:
                 # If no specific client_ip provided, use requesting client's IP
-                client_ip = self.__auth_manager._get_client_ip(dict(req.headers))
+                client_ip = self.__auth_manager._get_client_ip(req)
 
             status = await self.__auth_manager.get_rate_limit_status(client_ip)
             return make_json_response(status)
@@ -397,7 +397,7 @@ class AuthApi:
     @exposed_http("GET", "/same_check", auth_required=False, allow_usc=False)
     async def __same_check_handler(self, req: Request) -> Response:
         # Get client IP address
-        client_ip = self.__auth_manager._get_client_ip(dict(req.headers))
+        client_ip = self.__auth_manager._get_client_ip(req)
 
         # Check if request is from local network
         if not _is_local_network(client_ip):
