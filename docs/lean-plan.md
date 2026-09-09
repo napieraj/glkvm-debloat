@@ -248,6 +248,29 @@ There is no docs/ directory — `ls -d docs` fails; top level is LICENSE, Makefi
 
 ## Open decisions
 
+### Strip the frozen 4.82 base, or rebase the security-critical files toward 4.213?
+
+**Recommendation:** Seriously consider rebasing forward for the shared files, and keep stripping only GL's own additions. This reframes the project and should be decided before step 3 goes any further, because the two paths diverge in what they leave behind.
+
+The fork's base is kvmd 4.82 (kvmd/__init__.py:23); upstream is 4.213. That is ~131 releases of fixes to auth.py, htserver.py, validators/, the MSD and HID plugins and the streamer client that this tree does not have and, on the evidence, will never receive — docs/audit.md establishes GL patches userland CVEs on a normal cadence while leaving the forked core frozen, and live devices are reported still on 4.82. So patching the frozen fork is not standing still: every upstream release makes the gap wider, and the strip as written inherits that gap permanently.
+
+The measured case for rebasing the shared files specifically, taken against pikvm/kvmd @ 15bccd5:
+
+- htserver.py — upstream 541 lines, fork 569, **136 diff lines**. This is nearly rebasable as-is, and it is where the correct socket-peer resolver lives. Rebasing it plus re-pointing _get_client_ip closes R5.1 by deletion rather than by writing new security code.
+- auth.py — upstream 322, fork 764, 568 diff lines. Most of the excess IS what steps 4, 5 and 10 already remove: TOTP, two-step, and the rate-limit/lockout subsystem. Strip those first and what remains should be much closer to upstream than 568 lines suggests, at which point rebasing becomes tractable rather than a rewrite. Do the strip steps first, then measure again.
+- Keep GL's hardware-specific code (glatx, the RKNN OCR path, switch/sysfs_device.py, the otg plugins' device handling) on the fork side regardless. Nothing upstream serves an RM1PE.
+
+Do NOT read this as "abandon the plan". Steps 1, 2, 4, 5, 6 and 10 all reduce the diff against upstream, so they are the same work either way. What changes is the endpoint: patch-in-place leaves a permanently divergent 4.82, while rebase-forward converges the security-critical files onto something maintained.
+
+### Adopt from upstream rather than inventing — four components confirmed present at 15bccd5
+
+Verified by inspection of a real upstream clone. Each of these is a better starting point than the corresponding item elsewhere in this plan.
+
+- **plugins/auth/onetime.py** — exists upstream, absent from the fork (fork has forbidden, htpasswd, http, ldap, pam, radius). A one-time auth primitive is exactly the base for the OTP / boot-unlock work; do not invent one.
+- **kvmd/nbd/** — an entire subsystem upstream (controller, device, link, process, types) with **nbd/remotes/{http,sftp,smb}.py**, and completely absent from the fork. This is upstream's mature answer to mounting remote media, and it is the right replacement for the fork's POST /msd/write_remote (api/msd.py:248), which is the route behind the storage finding class in docs/audit.md.
+- **apps/kvmd/api/redfish/** — a package upstream (__init__, atx, msd, root) against the fork's single api/redfish.py. Per the Redfish open decision above, the fork's version is worth keeping; upstream's is the better base for real BMC interop.
+- **plugins/msd/otg/fs.py** — 85 lines upstream, and the fork simply does not have the file (fork ships __init__, drive, storage; upstream ships those plus fs). Diff the three shared files and account for the missing fourth before trusting the fork's MSD path. Note also that upstream has no apps/kvmd/streamer.py — it lives at clients/streamer.py and api/streamer.py — so any streamer comparison must be done against those paths rather than by filename.
+
 ### Is the executable-path primitive stripped, or hardened and reused for the beacon?
 
 **Recommendation:** Reuse it. It is the only local-caller authentication the fork has that actually works, and the beacon needs exactly that. DECIDED: the primitive SURVIVES the strip deliberately. htserver.get_request_exe_path, htserver.get_request_unix_credentials and api/auth._check_exe_path are KEEPS, and all three now carry DO-NOT-REMOVE comments pointing here, because after steps 3, 5 and 6 they have one caller left and will otherwise read as dead code to whoever runs the lint pass.
