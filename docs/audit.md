@@ -501,7 +501,53 @@ this device's image, so 4.82 is the number that describes the running daemon —
 tree that reports three different versions of itself in three files cannot answer
 "what are we running" without someone reading the source.
 
-*fork-only · verified · `kvmd/__init__.py:23` in both trees; `PKGBUILD:42`, `.bumpversion.cfg:4`*
+**This is the shipping version, not a stale checkout.** A third-party firmware
+registry reports live GLKVM devices running kvmd 4.82 under GL firmware 1.9.1, which
+is the same base this repository carries. The lag is what customers are running, not
+an artefact of when the repository was last pushed.
+
+**Pre-empting the obvious rebuttal.** GL.iNet does patch security — in the userland.
+Component CVEs are picked up on a normal cadence (dnsmasq was moved to 2.92 in May
+2026, for example). What is frozen is the forked kvmd core, which is precisely where
+every finding in this audit lives. So "the vendor maintains the firmware" and "the
+defects in this document are unpatched" are both true at once, and the first does not
+answer the second: CVE-tracked third-party components have someone else finding the
+bugs and issuing the identifiers, while bespoke fork code in `api/system.py` and
+`auth.py` has nobody doing either.
+
+*verified · `kvmd/__init__.py:23` in both trees; `PKGBUILD:42`, `.bumpversion.cfg:4`*
+*reported · the 4.82/1.9.1 device population and the dnsmasq 2.92 update come from
+third-party sources, recorded as stated rather than independently confirmed*
+
+### Exposure caveat — how much of this is reachable on a stock device
+
+Most of the findings above are REST API routes, and reaching them requires the API to
+be reachable. Two things are worth stating together, because either one alone
+misleads.
+
+Stock GL.iNet firmware is reported to disable the inherited PiKVM `/api/*` surface
+behind an nginx block by default, and to restore that block on firmware upgrade. To
+the extent that holds, a stock, untouched device does not expose the routes behind
+most of these findings to the network, and their practical severity on such a device
+is lower than their severity as written.
+
+That is not the configuration this audit is about, and the caveat does not travel to
+the deployments that matter:
+
+- This repository does not ship the block. `configs/nginx/kvmd.ctx-server.conf`
+  proxies `location /api` straight to kvmd with `auth_request off` — authentication is
+  enforced inside kvmd, not at nginx — and there is no `deny` or `return 403` anywhere
+  in `configs/nginx/`. Anyone deploying this tree's own nginx configuration has an
+  open API surface.
+- The cloud and GUI paths open it, because they are API clients.
+- A debloat fork built from this tree opens it by construction.
+
+So: lower severity on a stock device that nobody has touched, unchanged severity on
+any device where the API has been enabled — which includes every device this project
+is aimed at. The findings are written at the second severity, deliberately.
+
+*verified · `configs/nginx/kvmd.ctx-server.conf` (no block present in this tree)*
+*reported · the stock-firmware nginx block and its restoration on upgrade*
 
 ### The remediation for the identity finding is already in the tree
 
