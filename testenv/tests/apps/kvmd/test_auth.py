@@ -35,6 +35,8 @@ from kvmd.yamlconf import make_config
 
 from kvmd.apps.kvmd.auth import AuthManager
 
+from kvmd.crypto import KvmdHtpasswdFile
+
 from kvmd.plugins.auth import get_auth_service_class
 
 from kvmd.htserver import HttpExposed
@@ -74,7 +76,6 @@ async def _get_configured_manager(
         ext_type=("htpasswd" if external_path else ""),
         ext_kwargs=(_make_service_kwargs(external_path) if external_path else {}),
 
-        totp_secret_path="",
     )
 
     try:
@@ -212,7 +213,6 @@ async def test_ok__disabled() -> None:
             ext_type="",
             ext_kwargs={},
 
-            totp_secret_path="",
         )
 
         assert not manager.is_auth_enabled()
@@ -279,7 +279,6 @@ def _make_disabled_manager() -> AuthManager:
         ext_type="",
         ext_kwargs={},
 
-        totp_secret_path="",
     )
 
 
@@ -325,3 +324,52 @@ def test_ok__falls_back_to_the_peer_address_without_headers() -> None:
 
 def test_ok__unknown_without_a_transport() -> None:
     assert _client_ip(None) == "unknown"
+
+
+# =====
+# The 2FA removal was an ATOMICITY TRAP and these pin both halves of it.
+#
+# The login page used to concatenate a six-character code onto the password
+# (web/share/js/login/main.js) and authorize() sliced the last six characters
+# back off whenever /etc/kvmd/user/totp.secret was non-empty. Removing one side
+# without the other does not crash: it silently eats or appends six characters
+# of every real password. A silent corruption, so it needs an assertion rather
+# than a smoke test.
+@pytest.mark.asyncio
+async def test_ok__password_is_not_truncated(tmpdir) -> None:  # type: ignore
+    path = os.path.abspath(str(tmpdir.join("htpasswd")))
+
+    # The last six characters are load-bearing: "123456" is exactly what the
+    # old TOTP slice would have removed.
+    passwd = "correcthorse123456"
+
+    htpasswd = KvmdHtpasswdFile(path, new=True)
+    htpasswd.set_password("admin", passwd)
+    htpasswd.save()
+
+    async with _get_configured_manager([], path) as manager:
+        # The whole password authenticates ...
+        (token, _) = await manager.login("admin", passwd, 0)
+        assert isinstance(token, str)
+
+        # ... and the sliced form does not, which is what fails if the server
+        # side of the 2FA removal is ever reintroduced on its own.
+        assert (await manager.login("admin", passwd[:-6], 0))[0] is None
+
+
+def test_fail__totp_secret_path_is_no_longer_accepted() -> None:
+    # Pins the removal so it cannot quietly come back with the web half absent.
+    with pytest.raises(TypeError):
+        AuthManager(  # type: ignore[call-arg]
+            enabled=False,
+            expire=0,
+            usc_users=[],
+            usc_groups=[],
+            unauth_paths=[],
+            int_type="foobar",
+            int_kwargs={},
+            force_int_users=[],
+            ext_type="",
+            ext_kwargs={},
+            totp_secret_path="",
+        )

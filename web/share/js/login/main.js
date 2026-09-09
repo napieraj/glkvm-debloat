@@ -40,7 +40,7 @@ export function main() {
 		}, false);
 
 		tools.el.setOnClick($("login-button"), __login);
-		$("user-input").onkeyup = $("passwd-input").onkeyup = $("code-input").onkeyup = function(ev) {
+		$("user-input").onkeyup = $("passwd-input").onkeyup = function(ev) {
 			if (ev.code === "Enter") {
 				ev.preventDefault();
 				$("login-button").click();
@@ -58,7 +58,7 @@ function __login() {
 		return;
 	}
 
-	let e_passwd = encodeURIComponent($("passwd-input").value + $("code-input").value);
+	let e_passwd = encodeURIComponent($("passwd-input").value);
 	let e_expire = encodeURIComponent(tools.radio.getValue("expire-radio"));
 	let body = `user=${e_user}&passwd=${e_passwd}&expire=${e_expire}`;
 
@@ -94,13 +94,12 @@ function __login() {
 function __setEnabled(enabled) {
 	tools.el.setEnabled($("user-input"), enabled);
 	tools.el.setEnabled($("passwd-input"), enabled);
-	tools.el.setEnabled($("code-input"), enabled);
 	tools.el.setEnabled($("login-button"), enabled);
 }
 
 function __tryAgain() {
 	__setEnabled(true);
-	let el = ($("code-input").value.length ? $("code-input") : $("passwd-input"));
+	let el = $("passwd-input");
 	el.focus();
 	el.select();
 }

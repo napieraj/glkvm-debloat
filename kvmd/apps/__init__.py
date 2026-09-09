@@ -447,12 +447,6 @@ def _get_config_scheme() -> dict:
                     # Dynamic content
                 },
 
-                "totp": {
-                    "secret": {
-                        "file": Option("/etc/kvmd/user/totp.secret", type=valid_abs_path, if_empty=""),
-                    },
-                },
-
                 "rate_limit": {
                     "enabled":           Option(True, type=valid_bool),
                     "max_attempts":      Option(10,   type=valid_rate_limit_max_attempts),

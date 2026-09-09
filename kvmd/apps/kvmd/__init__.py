@@ -115,7 +115,6 @@ def main(argv: (list[str] | None)=None) -> None:
             ext_type=config.auth.external.type,
             ext_kwargs=(config.auth.external._unpack(ignore=["type"]) if config.auth.external.type else {}),
 
-            totp_secret_path=config.auth.totp.secret.file,
 
             rate_limit_enabled=config.auth.rate_limit.enabled,
             rate_limit_max_attempts=config.auth.rate_limit.max_attempts,

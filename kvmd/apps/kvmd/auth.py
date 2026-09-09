@@ -29,7 +29,6 @@ import time
 import datetime
 
 import secrets
-import pyotp
 
 
 from aiohttp.web import BaseRequest
@@ -112,8 +111,6 @@ class AuthManager:  # pylint: disable=too-many-arguments,too-many-instance-attri
         ext_type: str,
         ext_kwargs: dict,
 
-        totp_secret_path: str,
-
         rate_limit_enabled: bool = True,
         rate_limit_max_attempts: int = 10,
         rate_limit_time_window: int = 600,
@@ -157,8 +154,6 @@ class AuthManager:  # pylint: disable=too-many-arguments,too-many-instance-attri
             self.__ext_service = get_auth_service_class(ext_type)(**ext_kwargs)
             logger.info("Using external auth service %r",
                         self.__ext_service.get_plugin_name())
-
-        self.__totp_secret_path = totp_secret_path
 
         self.__sessions: dict[str, _Session] = {}  # {token: session}
 
@@ -206,17 +201,6 @@ class AuthManager:  # pylint: disable=too-many-arguments,too-many-instance-attri
         assert self.__enabled
         assert self.__int_service
         logger = get_logger(0)
-
-        # 2fa, 页面会把2fa密码拼接在passwd后面
-        if self.__totp_secret_path:
-            with open(self.__totp_secret_path) as file:
-                secret = file.read().strip()
-            if secret:
-                code = passwd[-6:]
-                if not pyotp.TOTP(secret).verify(code, valid_window=1):
-                    logger.error("Got access denied for user %r by TOTP", user)
-                    return False
-                passwd = passwd[:-6]
 
         if user not in self.__force_int_users and self.__ext_service:
             service = self.__ext_service
