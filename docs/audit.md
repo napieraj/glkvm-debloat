@@ -282,7 +282,19 @@ initialisation guard sits commented out rather than removed.
 Three sites read `auth_token` from the query string. Tokens in a URL are recorded by
 access logs and forwarded in the `Referer` header of anything the page loads.
 
-*verified · `api/auth.py:123, 245` · `server.py:556`*
+**CLOSED on this branch, with no ticket mechanism.** All three sites are gone:
+`_check_query_token` and its slot in the checker chain, the query token in the logout
+handler, and the query read in the WebSocket handshake.
+
+The WS handshake looked like the case that genuinely needed a token in the URL, since a
+browser opening a WebSocket cannot set headers. It did not. The authentication check has
+already validated that request, so it now stashes the token it validated on the request
+object and the handshake reads it back — upstream's design, ported as about fourteen
+lines into `htserver.py` (`_REQUEST_AUTH_TOKEN`, a `token` argument on
+`set_request_auth_info`, and `get_request_auth_token`). Nothing travels in the URL and
+there is no short-lived stream ticket to issue, expire or leak.
+
+*verified · `api/auth.py:123, 245` · `server.py:556` (as found); closed on this branch*
 
 ### MEDIUM — Logging out does not invalidate the user's other sessions
 
@@ -325,7 +337,28 @@ it is an unauthenticated device-identification primitive, and it is a second
 consumer of the spoofable identity, which means fixing `_get_client_ip` is load-
 bearing for more than the lockout subsystem.
 
-*fork-only · verified · `api/auth.py:384–420`, gate at `:389`, header identity at `auth.py:594`*
+**REBUILT, not deleted, on this branch.** The finding was the gate, not the feature: an
+unauthenticated caller confirming a MAC is a reasonable pre-enrolment liveness check for
+a launcher that already holds the device inventory, and it is the one route designed for
+a caller with no credentials yet. What was wrong was keying "local network only" on a
+request header.
+
+The resolver now derives the peer from the transport socket and honours `X-Real-IP` /
+`X-Forwarded-For` only when the immediate peer is trusted — a Unix socket peer, which is
+how nginx reaches kvmd, or loopback. It also moved out of `AuthManager` into
+`api/auth.py` as module-level functions, since this gate is its only remaining consumer
+now that the lockout subsystem is deleted, which removes the reach into a private method
+from outside the class that this entry noted.
+
+**Recorded while rebuilding, not fixed:** `_is_local_network` tests
+`ipaddress.is_private`, which is true for the RFC 5737 documentation ranges
+(192.0.2.0/24, 198.51.100.0/24, 203.0.113.0/24), RFC 2544 benchmarking (198.18.0.0/15)
+and 240.0.0.0/4. The gate therefore accepts more than a LAN. None of those ranges routes
+on the public internet so the practical exposure is negligible, but the imprecision only
+began to matter once the gate became genuinely enforceable instead of
+header-bypassable — worth tightening if this route is kept for the beacon.
+
+*fork-only · verified · `api/auth.py:384–420`, gate at `:389`, header identity at `auth.py:594` (as found); rebuilt on this branch*
 
 ### MEDIUM — A web terminal ships enabled
 
