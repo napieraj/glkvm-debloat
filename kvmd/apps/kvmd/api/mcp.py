@@ -123,7 +123,10 @@ HID
   - send_key_events sleeps BEFORE every event: 5 ms, or 30 ms with slow=True
     (kvmd/plugins/hid/__init__.py:162-167).  ~2 events per character makes
     1000 characters >= ~10 s, so `type` must be cancellable; on cancel it
-    calls hid.clear_events() the way api/hid.py:189-190 does.
+    calls hid.clear_events() the way api/hid.py:189-190 does.  aiohttp will
+    not cancel it on its own -- handler_cancellation is left at its False
+    default (htserver.py:403-411) -- so _CANCEL_ON_DISCONNECT runs the same
+    req.transport watchdog api/hid.py:180-190 uses for /hid/print.
   - valid_hid_key is CASE-SENSITIVE DOM KeyboardEvent.code
     (kvmd/validators/hid.py:46-47, kvmd/keyboard/mappings.py:165): ControlLeft,
     Delete, KeyA -- not ctrl, del, keya.  F13..F19 do not exist.
@@ -208,17 +211,27 @@ Logging
   - LogReader.__line_to_record returns {} for any line that is not four
     " - "-separated fields, and the logger name and level are discarded
     (kvmd/apps/kvmd/logreader.py:62-71).  So the "mcp " prefix inside the
-    message text is the only way to find these lines again, and any reader
-    must skip falsy records.
-  - LogReader.poll_log(seek) is a BYTE offset from EOF and lands mid-line,
-    which makes strptime raise (logreader.py:48-51, 65).  kvm://log reads
-    with seek=0 and keeps the tail in a bounded deque instead.
+    message text is the only way to find these lines again.
+  - LogReader.poll_log() cannot be used to serve kvm://log.  Its seek is a
+    BYTE offset from EOF and lands mid-line, and -- worse -- a line that DOES
+    split into four fields without a leading timestamp makes strptime raise
+    out of the generator, which then cannot be resumed (logreader.py:48-51,
+    62-70).  server.py:446-448 writes exactly such raw lines into the same
+    file, so kvm://log parses the file itself (_log_tail) and drops the lines
+    that do not parse, keeping the tail in a bounded deque.
+  - Nothing a tool logs may carry console content or the `text` argument
+    (brief section 6): the log is persisted to eMMC, is served back by
+    kvm://log, and ends up in the diagnostics bundle (api/upgrade.py:135).
+    _redact_args covers the args= field, _redact_message covers the err=
+    field (the fork's validators embed the offending value in their message),
+    and _ToolError.log_msg is how a tool says "log this instead".
 """
 
 
 import asyncio
 import base64
 import collections
+import datetime
 import functools
 import io
 import json
@@ -293,9 +306,15 @@ _WRITTEN_AGAINST = "4.82"
 
 _SERVER_NAME = "kvmd-mcp"
 
-# MCP protocol revisions this endpoint speaks.  The first is what we answer
-# with when the client does not name one it wants.
+# MCP protocol revisions this endpoint speaks, oldest first.  Nothing here is
+# gated on the negotiated revision -- all three are identical in effect on
+# this server -- but the answer still has to be one of them.
 _PROTOCOL_VERSIONS = ("2024-11-05", "2025-03-26", "2025-06-18")
+
+# What we answer with when the client names no revision, or names one we do
+# not know: the MCP lifecycle spec says the server SHOULD respond with the
+# LATEST version it supports, so this must not be _PROTOCOL_VERSIONS[0].
+_PROTOCOL_LATEST = _PROTOCOL_VERSIONS[-1]
 
 # Self-imposed request body cap (brief section 4).  Note that aiohttp's own
 # client_max_size is 1 MiB (kvmd/htserver.py:542-547 passes none) and nginx's
@@ -316,6 +335,18 @@ _KEYS_MAX = 6
 
 _WAIT_FOR_MAX_TIMEOUT = 900.0
 _WAIT_FOR_MIN_EVERY = 1.0
+
+# Tools that must stop when the client goes away.  `type` paces its key events
+# at up to 30 ms each (plugins/hid/__init__.py:162-167) and `wait_for` polls
+# until its own deadline, so both routinely outlive nginx's 60 s default
+# proxy_read_timeout on `location /api` (configs/nginx/kvmd.ctx-server.conf:
+# 110-116).  aiohttp does NOT cancel a handler when the peer disconnects --
+# HttpServer.run() leaves handler_cancellation at its False default
+# (htserver.py:403-411) -- so without a watchdog an abandoned `type` keeps
+# injecting keystrokes into the target and a client retry interleaves with it.
+# fetch_iso is deliberately absent: a multi-GB download always outlives the
+# proxy timeout, and finishing it is the useful behaviour.
+_CANCEL_ON_DISCONNECT = frozenset(["type", "wait_for"])
 
 _LOG_TAIL_LINES = 200
 
@@ -367,9 +398,15 @@ class _McpError(Exception):
 class _ToolError(Exception):
     """A tool that ran and failed; rendered as {"isError": true}, HTTP 200."""
 
-    def __init__(self, msg: str) -> None:
+    def __init__(self, msg: str, log_msg: (str | None)=None) -> None:
         super().__init__(msg)
         self.msg = msg
+        # What __call_tool writes to the log when `msg` itself carries content
+        # that must never be persisted -- the OCR'd screen, or the `text`
+        # argument the brief (section 6) requires to be logged as len=N.  The
+        # caller still gets the full `msg` in the isError content, which is
+        # not logged.
+        self.log_msg = (msg if log_msg is None else log_msg)
 
 
 # =====
@@ -418,6 +455,16 @@ def _normalize_text(text: str) -> str:
     return " ".join(text.split()).casefold()
 
 
+_SECRET_ARGS = ("passwd", "password", "token", "auth_token")
+
+
+def _url_host(value: Any) -> str:
+    try:
+        return (urllib.parse.urlsplit(str(value)).hostname or "?")
+    except ValueError:
+        return "?"
+
+
 def _redact_args(args: dict) -> str:
     # Brief section 6.  `text` never reaches the log; `url` logs host only.
     out: dict = {}
@@ -425,11 +472,8 @@ def _redact_args(args: dict) -> str:
         if key == "text":
             out[key] = f"len={len(value) if isinstance(value, str) else 0}"
         elif key == "url":
-            try:
-                out[key] = (urllib.parse.urlsplit(str(value)).hostname or "?")
-            except ValueError:
-                out[key] = "?"
-        elif key in ("passwd", "password", "token", "auth_token"):
+            out[key] = _url_host(value)
+        elif key in _SECRET_ARGS:
             out[key] = "***"
         else:
             out[key] = value
@@ -437,6 +481,49 @@ def _redact_args(args: dict) -> str:
         return json.dumps(out, sort_keys=True, ensure_ascii=False)
     except (TypeError, ValueError):
         return "<unserializable>"
+
+
+def _redact_message(msg: str, args: dict) -> str:
+    # _redact_args keeps the logged args= field clean, but the err= field next
+    # to it carries the exception text, and the fork's validators embed the
+    # offending value verbatim in their message (validators/__init__.py
+    # raise_error).  valid_url accepts userinfo, so a rejected
+    # https://admin:hunter2@nas.lan/... would otherwise land in the log in
+    # full.  Substitute every redacted argument value wherever it appears.
+    for (key, value) in args.items():
+        if not isinstance(value, str) or not value:
+            continue
+        if key == "text":
+            replacement = f"<text len={len(value)}>"
+        elif key == "url":
+            replacement = _url_host(value)
+        elif key in _SECRET_ARGS:
+            replacement = "***"
+        else:
+            continue
+        msg = msg.replace(value, replacement)
+    return msg
+
+
+def _log_tail(path: str, lines: int) -> str:
+    # The format LogReader writes and parses (logreader.py:41, 62-70):
+    # "<asctime> - <name> - <levelname> - <message>", asctime being
+    # "%Y-%m-%d %H:%M:%S,%f".  Unlike LogReader.__line_to_record this SKIPS a
+    # line whose first field is not a timestamp instead of raising; see
+    # McpApi.__read_log_tail for why that matters.
+    tail: collections.deque = collections.deque(maxlen=lines)
+    with open(path, "r") as file:
+        for line in file:
+            parts = line.split(" - ", 3)
+            if len(parts) != 4:
+                continue
+            try:
+                dt = datetime.datetime.strptime(parts[0], "%Y-%m-%d %H:%M:%S,%f")
+            except ValueError:
+                continue
+            # "kvmd" is the service name LogReader hardcodes (logreader.py:66).
+            tail.append("[%s %s] --- %s" % (dt.strftime("%Y-%m-%d %H:%M:%S"), "kvmd", parts[3].rstrip()))
+    return "\n".join(tail)
 
 
 def _client_ip(req: Request) -> str:
@@ -582,6 +669,12 @@ class McpApi:  # pylint: disable=too-many-instance-attributes
         if not isinstance(request, dict):
             return self.__reply(self.__error_envelope(None, _E_REQUEST, "Invalid Request: expected a JSON object"))
 
+        # JSON-RPC 2.0 section 4.1: a Notification is a request object WITHOUT
+        # an `id` member, and the server MUST NOT reply to it.  Test for
+        # membership rather than request.get("id"): an explicit {"id": null}
+        # is a (malformed) request, not a notification, and conflating the two
+        # would silently swallow its answer.
+        notification = ("id" not in request)
         req_id = request.get("id")
         method = request.get("method")
         params = request.get("params")
@@ -594,6 +687,8 @@ class McpApi:  # pylint: disable=too-many-instance-attributes
         try:
             result = await self.__dispatch(req, method, params)
         except _McpError as ex:
+            if notification:
+                return self.__accepted()
             return self.__reply(self.__error_envelope(req_id, ex.code, ex.msg))
         except asyncio.CancelledError:
             raise
@@ -601,11 +696,12 @@ class McpApi:  # pylint: disable=too-many-instance-attributes
             # htserver's wrapper would turn this into a bare 500 with no JSON
             # envelope (kvmd/htserver.py:427-432), so it is caught here.
             get_logger(0).exception("mcp: unhandled error in method %r", method)
+            if notification:
+                return self.__accepted()
             return self.__reply(self.__error_envelope(req_id, _E_INTERNAL, f"{type(ex).__name__}: {ex}"))
 
-        if req_id is None:
-            # A notification: no response body per JSON-RPC 2.0.
-            return self.__reply({})
+        if notification:
+            return self.__accepted()
         return self.__reply({"jsonrpc": "2.0", "id": req_id, "result": result})
 
     async def __read_body(self, req: Request) -> bytes:
@@ -622,6 +718,14 @@ class McpApi:  # pylint: disable=too-many-instance-attributes
                 raise _McpError(_E_REQUEST, f"Request body is larger than {_MAX_BODY} bytes")
         return bytes(buf)
 
+    def __accepted(self) -> Response:
+        # MCP streamable-HTTP: a POST that carries only notifications (or
+        # responses) is answered with 202 Accepted and NO body.  An empty JSON
+        # object would not do: `{}` matches no member of the JSONRPCMessage
+        # union, so a client that parses the body of a 200 application/json
+        # answer sees a malformed message instead of nothing at all.
+        return Response(status=202)
+
     def __reply(self, envelope: dict) -> Response:
         # wrap_result=False: the default {"ok":..., "result":...} wrapper would
         # double-envelope the JSON-RPC body (kvmd/htserver.py:185-195).
@@ -635,7 +739,7 @@ class McpApi:  # pylint: disable=too-many-instance-attributes
     async def __dispatch(self, req: Request, method: str, params: dict) -> dict:
         if method == "initialize":
             wanted = params.get("protocolVersion")
-            version = (wanted if (isinstance(wanted, str) and wanted in _PROTOCOL_VERSIONS) else _PROTOCOL_VERSIONS[0])
+            version = (wanted if (isinstance(wanted, str) and wanted in _PROTOCOL_VERSIONS) else _PROTOCOL_LATEST)
             return {
                 "protocolVersion": version,
                 "capabilities": {"tools": {}, "resources": {}},
@@ -673,7 +777,7 @@ class McpApi:  # pylint: disable=too-many-instance-attributes
         redacted = _redact_args(args)
         started = time.monotonic()
         try:
-            content = await handler(args)
+            content = await self.__run_tool(req, name, handler, args)
         except asyncio.CancelledError:
             raise
         except Exception as ex:  # pylint: disable=broad-except
@@ -682,17 +786,61 @@ class McpApi:  # pylint: disable=too-many-instance-attributes
             # families, htserver's BadRequestError (which valid_mac raises),
             # and the TypeError from the glatx wait=True fork bug.
             msg = (ex.msg if isinstance(ex, _ToolError) else f"{type(ex).__name__}: {ex}")
+            log_msg = _redact_message((ex.log_msg if isinstance(ex, _ToolError) else msg), args)
             ms = int((time.monotonic() - started) * 1000)
-            logger.warning(line + " err=%s", ip, name, redacted, ms, False, msg)
+            logger.warning(line + " err=%s", ip, name, redacted, ms, False, log_msg)
             return {"content": [{"type": "text", "text": msg}], "isError": True}
         ms = int((time.monotonic() - started) * 1000)
         logger.info(line, ip, name, redacted, ms, True)
         return {"content": content, "isError": False}
 
+    async def __run_tool(self, req: Request, name: str, handler: Callable, args: dict) -> list[dict]:
+        if name not in _CANCEL_ON_DISCONNECT:
+            return await handler(args)
+
+        # Same shape as HidApi's paste handler (api/hid.py:177-193): aiohttp
+        # never cancels a handler by itself here, so the watchdog is what
+        # makes the tools' own `except CancelledError` recovery reachable.
+        disconnected = False
+        task = asyncio.ensure_future(handler(args))
+
+        async def _wait_disconnect() -> None:
+            nonlocal disconnected
+            while not task.done():
+                if req.transport is None or req.transport.is_closing():
+                    disconnected = True
+                    task.cancel()
+                    return
+                await asyncio.sleep(0.05)
+
+        checker = asyncio.ensure_future(_wait_disconnect())
+        try:
+            return await task
+        except asyncio.CancelledError:
+            if not disconnected:
+                # Not the client going away but the daemon shutting down:
+                # run_app(shutdown_timeout=1) cancels the handler task
+                # (htserver.py:403-411), and that must keep propagating.
+                raise
+            raise _ToolError(f"Cancelled: the client disconnected while {name} was running") from None
+        finally:
+            if not checker.done():
+                checker.cancel()
+
     async def __read_resource(self, params: dict) -> dict:
         uri = params.get("uri")
         if uri == _RES_FRAME:
-            snapshot = await self.__snapshot(allow_offline=True)
+            try:
+                snapshot = await self.__snapshot(allow_offline=True)
+            except _ToolError as ex:
+                # A missing snapshot is routine, not a malfunction: the
+                # streamer is only kept up while something needs it
+                # (server.py:682-684), so an idle device answers every read of
+                # this resource that way.  Report it the way __read_log_tail
+                # reports its own resource-level unavailability -- and NOT via
+                # the generic handler, which would log a stack trace per call
+                # and return -32603 with the private class name in it.
+                raise _McpError(_E_PARAMS, ex.msg) from None
             return {"contents": [{
                 "uri": _RES_FRAME,
                 "mimeType": "image/jpeg",
@@ -709,20 +857,21 @@ class McpApi:  # pylint: disable=too-many-instance-attributes
     async def __read_log_tail(self) -> str:
         if self.__log_reader is None:
             raise _McpError(_E_PARAMS, "LogReader is disabled")
-        tail: collections.deque = collections.deque(maxlen=_LOG_TAIL_LINES)
-        # seek must be 0: it is a byte offset from EOF and any other value
-        # lands mid-line and makes strptime raise (logreader.py:48-51, 65).
-        async for record in self.__log_reader.poll_log(0, False):
-            if not record:
-                # Unparseable lines yield {} (logreader.py:64, 71) and are
-                # reachable in production (server.py:446-447 writes raw lines).
-                continue
-            tail.append("[%s %s] --- %s" % (
-                record["dt"].strftime("%Y-%m-%d %H:%M:%S"),
-                record["service"],
-                record["msg"],
-            ))
-        return "\n".join(tail)
+        # LogReader.poll_log() is deliberately not used here.  Its
+        # __line_to_record calls strptime() with no guard (logreader.py:62-70),
+        # so ANY line that splits into four ' - ' fields without a leading
+        # timestamp raises ValueError OUT of the generator -- which cannot then
+        # be resumed, so a try/except around the loop body would not help and
+        # one such line makes the whole resource unreadable until the file
+        # rotates.  Those lines are reachable in production: the webrtc_client
+        # stderr pipe writes raw, unformatted text into the very same file
+        # (server.py:446-448).  Read it here instead, in the reader's own
+        # record shape, dropping the lines that do not parse.  _log_tail is
+        # blocking file I/O, hence run_async (kvmd/aiotools.py:196-197).
+        try:
+            return await aiotools.run_async(_log_tail, self.__log_reader.log_file, _LOG_TAIL_LINES)
+        except OSError as ex:
+            raise _McpError(_E_PARAMS, f"Cannot read {self.__log_reader.log_file}: {ex}") from None
 
     # ===== Shared helpers
 
@@ -851,7 +1000,16 @@ class McpApi:  # pylint: disable=too-many-instance-attributes
             # Yield to the loop; never busy-wait, and never overshoot the
             # deadline by a whole interval.
             await asyncio.sleep(min(every_s, remaining))
-        raise _ToolError(f"Timed out after {timeout_s:g}s waiting for {needle!r}; last text: {last!r}")
+        raise _ToolError(
+            f"Timed out after {timeout_s:g}s waiting for {needle!r}; last text: {last!r}",
+            # The caller gets the needle and the last screen back, but neither
+            # may reach the log: `needle` IS the `text` argument the brief
+            # (section 6) requires to be logged as len=N, and `last` is the
+            # whole OCR'd console -- a recovery key or an echoed password may
+            # be sitting in it.  The log is persisted to eMMC and served back
+            # by this module's own kvm://log resource.
+            log_msg=f"Timed out after {timeout_s:g}s: text len={len(needle)} polls={polls} last_len={len(last)}",
+        )
 
     async def __tool_type(self, args: dict) -> list[dict]:
         text = _get_arg(args, "text")
@@ -1043,7 +1201,11 @@ class McpApi:  # pylint: disable=too-many-instance-attributes
                 if size > free:
                     raise MsdNoSpaceError()
 
-            get_logger(0).info("mcp: downloading image %r as %r to MSD ...", url, name)
+            # Host only -- the URL may carry userinfo (valid_url accepts it) and
+            # this log is served back through kvm://log and shipped in the
+            # diagnostics bundle (api/upgrade.py:135).  Brief section 6.
+            get_logger(0).info(
+                "mcp: downloading image from %r as %r to MSD ...", _url_host(url), name)
             async with self.__msd.write_image(name, size, None) as writer:
                 chunk_size = writer.get_chunk_size()
                 async for chunk in remote.content.iter_chunked(chunk_size):
@@ -1055,7 +1217,8 @@ class McpApi:  # pylint: disable=too-many-instance-attributes
     async def __tool_mount(self, args: dict) -> list[dict]:
         # /msd/set_params validates its `image` with valid_msd_mount_name, not
         # valid_msd_image_name (api/msd.py:82); the two differ on a leading
-        # slash, and the fork uses the former to allow /dev/... paths.
+        # slash, which is how the fork lets a /dev/... path through the
+        # VALIDATOR -- the storage lookup below still rejects it.
         image = valid_msd_mount_name(_get_arg(args, "image"))
         if not image.strip("/"):
             # An empty name DESELECTS the image instead of erroring
@@ -1070,6 +1233,19 @@ class McpApi:  # pylint: disable=too-many-instance-attributes
             cdrom = False
 
         state = await self.__msd.get_state()
+        images = ((state.get("storage") or {}).get("images") or {})
+        if image not in images:
+            # The name is only resolved INSIDE set_params, which raises
+            # MsdUnknownImageError for anything that is not a storage key
+            # (otg/__init__.py:398-402, 1238-1244) -- by which point the drive
+            # below has already been disconnected, ejecting a running target's
+            # media and then failing with nothing mounted and no rollback.
+            # valid_msd_mount_name only sanitises the string, it checks no
+            # existence, so check here, before mutating anything.  This also
+            # rejects the /dev/... form that validator permits: storage keys
+            # come only from scanning the storage tree (msd/otg/storage.py:
+            # 203-211), so such a name can never resolve in set_params either.
+            raise _ToolError(f"Unknown image {image!r}; MSD storage holds: {sorted(images)}")
         if ((state.get("drive") or {}).get("connected")):
             # set_params raises MsdConnectedError while connected
             # (otg/__init__.py:396), so unmount first.
@@ -1168,8 +1344,11 @@ _TOOLS: list[dict] = [
     {
         "name": "see",
         "description": (
-            "Capture the console screen as JPEG. mode=full returns ustreamer's frame untouched;"
-            " mode=preview downscales to max_width; mode=region crops to box first."
+            "Capture the console screen as JPEG. mode=region crops to box first; mode=preview"
+            " defaults max_width to 640. max_width downscales and re-encodes in EVERY mode,"
+            " mode=full included; mode=full with max_width=0 (the default) is the only call"
+            " shape that returns ustreamer's own frame untouched, and the only one that costs"
+            " no decode."
             " The second content part is the produced image's real WxH, which is not necessarily"
             " max_width wide because downscaling preserves aspect and never upscales."
         ),
@@ -1177,7 +1356,14 @@ _TOOLS: list[dict] = [
             "type": "object",
             "properties": {
                 "mode": {"type": "string", "enum": ["full", "preview", "region"], "default": "full"},
-                "max_width": {"type": "integer", "minimum": 0, "description": "0 means native; ignored by mode=full"},
+                "max_width": {
+                    "type": "integer",
+                    "minimum": 0,
+                    "description": (
+                        "0 means native size and no re-encode; any other value downscales in every"
+                        " mode, mode=full included. Defaults to 640 for mode=preview, 0 otherwise."
+                    ),
+                },
                 "quality": {"type": "integer", "minimum": 1, "maximum": 100, "default": 80},
                 "box": {
                     "type": "array",
