@@ -21,6 +21,34 @@
 > Step 0's own instruction — re-derive line numbers at HEAD rather than
 > trusting the ones written here — now applies to this document itself.
 
+> **A PARTIAL TESTENV GIVES A FALSE GREEN. Read this before believing any
+> "the tests pass" claim, including your own.**
+>
+> Step 1 was first reported complete against a partial environment, and the
+> number was wrong in the dangerous direction. 21 tests in
+> testenv/tests/apps/htpasswd were failing on missing configuration —
+> /etc/kvmd/main.yaml, /usr/share/kvmd/extras, the TLS material, /usr/bin/
+> ustreamer, /sbin/ip — and were written off as "environmental". They were
+> not. Once the environment was completed, those config errors stopped firing
+> first and **9 genuine code divergences appeared underneath them**, including
+> the one that revealed kvmd-htpasswd and the web password path hash
+> differently (now docs/audit.md, HIGH). A missing config file and a real
+> defect produce the same red line, and the config error wins the race.
+>
+> So: an incomplete environment does not merely hide tests, it *misclassifies*
+> them, and it does so silently. Any claim that the suite passes must be made
+> against the COMPLETE testenv and on BOTH interpreters. tox pins
+> basepython = python3.12 (testenv/tox.ini:6) while a bare `python3` on a
+> workstation is often 3.11, and the two disagree about which optional test
+> dependencies are installed.
+>
+> The reference numbers, for comparison after the strip: **666 passed, 0
+> failed, 0 errors** on python3.12 with the environment fully staged. To stage
+> it outside the container, follow the `tox` recipe in the Makefile (85-91):
+> the config copy, the platform file, main.yaml from the platform variant,
+> and the extras/keymaps/configs.default paths, plus pytest-mock,
+> pytest-aiohttp, python-pam and the ustreamer stub.
+
 
 Line numbers below were derived on a tree at 1.10.0 + the MCP commit.
 Step 0 says to re-derive them; do that before trusting any of them.
@@ -222,7 +250,7 @@ There is no docs/ directory — `ls -d docs` fails; top level is LICENSE, Makefi
 
 ### Is the executable-path primitive stripped, or hardened and reused for the beacon?
 
-**Recommendation:** Reuse it. It is the only local-caller authentication the fork has that actually works, and the beacon needs exactly that.
+**Recommendation:** Reuse it. It is the only local-caller authentication the fork has that actually works, and the beacon needs exactly that. DECIDED: the primitive SURVIVES the strip deliberately. htserver.get_request_exe_path, htserver.get_request_unix_credentials and api/auth._check_exe_path are KEEPS, and all three now carry DO-NOT-REMOVE comments pointing here, because after steps 3, 5 and 6 they have one caller left and will otherwise read as dead code to whoever runs the lint pass.
 
 Step 6 removes the gl_kvm_gui allow-paths, and steps 3 and 5 remove 26 of the 31 routes that use them, so the mechanism itself ends up with one surviving user (server.py:578, gl-pion) and looks like dead weight. It is not. docs/audit.md section 3b establishes that it holds against spoofing: SO_PEERCRED (htserver.py:331) fails on a TCP socket, and an HTTP request arriving through nginx resolves to nginx's own binary because nginx proxies over unix:/run/kvmd/kvmd.sock, so both paths fail closed. That is a working answer to "is this caller a specific local program", which design section 7 needs and which the usc/uid path cannot give as shipped (the default usc group kvmd-selfauth is created nowhere, apps/__init__.py:436 and configs/os/sysusers.conf).
 

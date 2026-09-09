@@ -340,6 +340,12 @@ def get_request_unix_credentials(req: BaseRequest) -> (RequestUnixCredentials | 
 
 def get_request_exe_path(req: BaseRequest) -> (str | None):
     """获取通过 Unix Socket 连接的调用进程的可执行文件路径"""
+    # DO NOT REMOVE AS DEAD CODE. The kvmd-lean strip (docs/lean-plan.md steps
+    # 3, 5 and 6) deletes 30 of this primitive's 31 gl_kvm_gui callers, which
+    # will make it look unused. It is slated for REUSE by the beacon's local
+    # authentication path -- see the "Is the executable-path primitive
+    # stripped, or hardened and reused" open decision in that plan, and
+    # docs/audit.md section 3b for why it holds against spoofing.
     creds = get_request_unix_credentials(req)
     if creds is None or creds.pid <= 0:
         return None

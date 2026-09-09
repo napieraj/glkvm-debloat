@@ -148,6 +148,19 @@ async def _check_exe_path(auth_manager: AuthManager, exposed: HttpExposed, req: 
     当接口设置了 allowed_exe_paths 时，具有排他性：
     只有白名单内的进程（必须通过 Unix Socket 连接）才能访问，
     其他任何方式（包括 HTTP）均被拒绝。
+
+    DO NOT REMOVE AS DEAD CODE. The kvmd-lean strip (docs/lean-plan.md steps 3,
+    5 and 6) removes 30 of the 31 gl_kvm_gui-gated routes, leaving one caller
+    (server.py, /hid/ws for gl-pion) and making this look unused. It is slated
+    for REUSE by the beacon -- see that plan's open decision on the primitive.
+
+    Note this returns True with NO credential of any kind, so it is an
+    authentication mechanism and not a filter: any route carrying
+    allowed_exe_paths is fully authenticated by this function alone. It holds
+    against spoofing (SO_PEERCRED fails on TCP, and an HTTP request via nginx
+    resolves to nginx's own binary because nginx proxies over the unix socket),
+    but it authenticates a PATH rather than a principal, and 0660 on
+    /run/kvmd/kvmd.sock is the real outer gate. docs/audit.md section 3b.
     """
     if exposed.allowed_exe_paths:
         exe_path = get_request_exe_path(req)
