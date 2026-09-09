@@ -77,10 +77,6 @@ GET /upgrade/version auth=True usc=True exe=-
 GET /wol/list auth=True usc=True exe=-
 GET /wol/scan auth=True usc=True exe=-
 GET /ws auth=True usc=True exe=-
-GET /zerotier/auth auth=True usc=True exe=-
-GET /zerotier/gui_auth auth=True usc=True exe=/usr/sbin/gl_kvm_gui
-GET /zerotier/gui_status auth=True usc=True exe=/usr/sbin/gl_kvm_gui
-GET /zerotier/status auth=True usc=True exe=-
 PATCH /redfish/v1/Systems/0 auth=True usc=True exe=-
 POST /ap/close_all_mode auth=True usc=True exe=-
 POST /ap/enable auth=True usc=True exe=-
@@ -168,11 +164,3 @@ POST /upgrade/upload auth=True usc=True exe=-
 POST /wol/add auth=True usc=True exe=-
 POST /wol/remove auth=True usc=True exe=-
 POST /wol/wake auth=True usc=True exe=-
-POST /zerotier/gui_leave auth=True usc=True exe=/usr/sbin/gl_kvm_gui
-POST /zerotier/gui_set_token auth=True usc=True exe=/usr/sbin/gl_kvm_gui
-POST /zerotier/gui_start auth=True usc=True exe=/usr/sbin/gl_kvm_gui
-POST /zerotier/gui_stop auth=True usc=True exe=/usr/sbin/gl_kvm_gui
-POST /zerotier/leave auth=True usc=True exe=-
-POST /zerotier/set_token auth=True usc=True exe=-
-POST /zerotier/start auth=True usc=True exe=-
-POST /zerotier/stop auth=True usc=True exe=-

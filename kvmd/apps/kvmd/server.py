@@ -86,7 +86,6 @@ from .api.repeater import RepeaterApi
 from .api.modem import ModemApi
 from .api.ap import ApApi
 from .api.wol import WolApi
-from .api.zerotier import ZerotierApi
 from .api.system import SystemApi
 from .api.info import InfoApi
 from .api.log import LogApi
@@ -218,7 +217,6 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
             self.__repeater_api,
             self.__modem_api,
             self.__ap_api,
-            ZerotierApi(),
             SystemApi(
                 get_wss_callback=self._get_wss,
                 close_ws_callback=self._close_ws_by_session,
