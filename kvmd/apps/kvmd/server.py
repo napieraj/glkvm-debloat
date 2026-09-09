@@ -86,7 +86,6 @@ from .api.repeater import RepeaterApi
 from .api.modem import ModemApi
 from .api.ap import ApApi
 from .api.wol import WolApi
-from .api.tailscale import TailscaleApi
 from .api.netbird import NetbirdApi
 from .api.zerotier import ZerotierApi
 from .api.system import SystemApi
@@ -220,7 +219,6 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
             self.__repeater_api,
             self.__modem_api,
             self.__ap_api,
-            TailscaleApi(),
             NetbirdApi(),
             ZerotierApi(),
             SystemApi(
