@@ -102,7 +102,6 @@ from .api.streamer import StreamerApi
 from .api.switch import SwitchApi
 from .api.export import ExportApi
 from .api.redfish import RedfishApi
-from .api.custom_screen import CustomScreenApi
 from .api.recorder import RecorderApi
 from .api.serial import SerialApi
 
@@ -210,7 +209,6 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
         self.__repeater_api = RepeaterApi()
         self.__modem_api = ModemApi()
         self.__ap_api = ApApi()
-        self.__custom_screen_api = CustomScreenApi()
         self.__recorder_api = RecorderApi(streamer, msd)
         self.__hid_api = HidApi(hid, keymap_path)  # Ugly hack to get keymaps state
         self.__apis: list[object] = [
@@ -222,7 +220,6 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
             self.__repeater_api,
             self.__modem_api,
             self.__ap_api,
-            self.__custom_screen_api,
             TailscaleApi(),
             NetbirdApi(),
             ZerotierApi(),
