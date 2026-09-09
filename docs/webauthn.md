@@ -161,6 +161,8 @@ Public surface beyond `BaseAuthService`:
     make_challenge(purpose: str) -> dict     # the PublicKeyCredentialRequestOptions body
     verify_assertion(...) -> tuple[str, str] # -> (username, purpose); raises WebAuthnError
     get_credentials_info() -> list[dict]     # label/aaguid/roles/user, for the enrolment side
+    get_pending_count() -> int               # outstanding challenges, for the cap's test
+    is_configured() -> bool                  # rp_id is non-empty
     authorize(user, passwd) -> bool          # always False, fail-closed
     cleanup() -> None                        # drops pending challenges
 
@@ -654,6 +656,13 @@ Add `webauthn.json` to the same block that writes the launcher pin: `scp` to
 `REMOTE_DIR`, so the `rm -R` at line 34 does not clear it — which also means a
 re-run does **not** refresh it unless the `scp` is explicit.
 
+**Do not scp `configs/kvmd/webauthn.json`.** That file is the empty reference
+example (§13.3). The apply script must copy the *ticket's* store; copying the
+in-repo sample over an enrolled device replaces its credentials with an empty
+set, which is a silent lockout. If a guard is wanted, refuse to overwrite a
+`/etc/kvmd/user/webauthn.json` that has a non-empty `credentials` array with
+one that does not.
+
 ### 11.8 Linter bookkeeping
 
 - `vulture`: `testenv/tox.ini:37` ignores `@pytest.fixture` but not
@@ -702,3 +711,84 @@ Found while re-deriving. Listed so they get fixed rather than re-discovered.
 8. **`docs/audit.md` section 3d should not be read as closed by this work.**
    WebAuthn removes the *routine* dependence on the password; it does not add
    rate limiting. `nginx limit_req` is still the open item.
+
+---
+
+## 13. What actually shipped with this document
+
+Net-new files only. Nothing in the three locked files or in `web/` was touched.
+
+### 13.1 `kvmd/plugins/auth/webauthn.py`
+
+Follows the fork's plugin contract (§3): explicit keyword parameters on
+`__init__`, `get_plugin_options()` returning `yamlconf.Option`s, constructed as
+`get_auth_service_class("webauthn")(**kwargs)`. Contents, in order:
+
+- `b64u_decode` / `b64u_encode` — base64url with a `^[A-Za-z0-9_-]*$` gate
+  before decoding, because `urlsafe_b64decode` silently tolerates standard
+  base64 and garbage alike. These are the first base64url helpers in the tree
+  (§1 recorded that none existed).
+- `cbor_loads` — a deliberately partial CBOR reader: unsigned int, negative
+  int, byte string, text string, array, map, and nothing else. Indefinite
+  lengths, tags, floats and simple values are **refused**, not skipped; trailing
+  bytes are an error; nesting is capped at 4; duplicate and unhashable map keys
+  are rejected. Each of those refusals has a test. A permissive decoder in front
+  of a public key is where key confusion lives.
+- `cose_es256_to_spki` / `spki_to_pem` — §7.1, with `_P256_SPKI_PREFIX` as a
+  measured constant rather than a copied one.
+- `verify_es256_cryptography` → `bool | None`, `verify_es256_openssl` → `bool`,
+  and `verify_es256` dispatching between them. §1.
+- `Credential` (frozen dataclass) and `CredentialStore` — §8. Read-only,
+  re-reads on `(st_mtime_ns, st_size)` change, keeps the last good set when a
+  file goes bad, and never lowers a counter mark it has already seen even if a
+  re-applied ticket says a smaller number.
+- `get_default_origins()` — §4, monkeypatchable so the fleet-origin rule is
+  testable without a real FQDN.
+- `Plugin` — the surface listed in §3.
+
+### 13.2 `testenv/tests/plugins/auth/`
+
+- `softauthn.py` — a software authenticator built entirely on `openssl`
+  subprocesses: real P-256 keys, real ES256 signatures, a tiny CBOR *encoder*
+  for COSE keys, and builders for `authenticatorData` and `clientDataJSON`.
+  No network, no `cryptography`, and no key generation on any device. It is
+  test-only and nothing in `kvmd/` may import it.
+- `test_webauthn.py` — 84 tests. `_make_plugin()` goes through
+  `yamlconf.make_config` and `_unpack()`, so the option contract is exercised
+  rather than bypassed, and one test asserts `cose_es256_to_spki` reproduces the
+  DER that `openssl ec -pubout -outform DER` emitted for the same key, so the
+  measured prefix constant cannot rot silently.
+
+**Mutation-checked**, because 84 tests passing on the first run is not evidence
+that any of them bite. Four one-line mutations were applied and reverted:
+
+| mutation | tests that failed |
+|---|---|
+| skip the UP-flag check | 2 |
+| accept any signature | 1 |
+| read the pending challenge instead of popping it | 1 (`challenge_is_single_use`) |
+| skip the origin check | 3 |
+
+### 13.3 `configs/kvmd/webauthn.json`
+
+The empty reference example. It is **not** auto-installed: `PKGBUILD:173`
+copies `configs/*` into `/usr/share/kvmd/configs.default`, and the Makefile's
+container targets copy only `*.yaml`, `*passwd` and `*.secret` into `/etc/kvmd`
+(`Makefile:86-88, 128-130, 155-157, 178-180`) — no `.json`. Deliberate: an
+auto-installed store would let an upgrade or an apply-script re-run replace an
+enrolled device's credentials with an empty set. See §11.7.
+
+### 13.4 Numbers
+
+| gate | baseline | after |
+|---|---:|---:|
+| `pytest testenv/tests` | 681 passed, 0 failed | **765 passed, 0 failed** |
+| `flake8` (`kvmd testenv/tests`) | 468 | **468** |
+
+`mypy` reports **0 errors in the three new files**. It does report two
+pre-existing errors in `kvmd/tools.py:131` and `:166` (`run_command` and
+`run_shell` annotate `-> tuple[int, str, str]` while
+`Process.returncode` is `int | None`); those predate this work and are in a file
+this workstream did not touch. `pylint` and `vulture` are not installed in this
+container and could not be run — the constraints in §11.8 were satisfied by
+inspection, not by a run, and `make tox` should be the gate before this merges.
