@@ -88,7 +88,6 @@ from .api.ap import ApApi
 from .api.wol import WolApi
 from .api.tailscale import TailscaleApi
 from .api.netbird import NetbirdApi
-from .api.cloudflare import CloudflareApi
 from .api.zerotier import ZerotierApi
 from .api.system import SystemApi
 from .api.info import InfoApi
@@ -226,7 +225,6 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
             self.__custom_screen_api,
             TailscaleApi(),
             NetbirdApi(),
-            CloudflareApi(),
             ZerotierApi(),
             SystemApi(
                 get_wss_callback=self._get_wss,

@@ -7,7 +7,6 @@ GET /auth/locked_clients auth=True usc=True exe=-
 GET /auth/rate_limit_status auth=True usc=True exe=-
 GET /auth/two_step_login auth=True usc=False exe=/usr/sbin/gl_kvm_gui
 GET /auth/two_step_pending auth=False usc=False exe=/usr/sbin/gl_kvm_gui
-GET /cloudflare/status auth=True usc=True exe=-
 GET /custom_screen/background auth=True usc=True exe=-
 GET /custom_screen/status auth=True usc=True exe=-
 GET /export/prometheus/metrics auth=True usc=True exe=-
@@ -109,9 +108,6 @@ POST /auth/two_step_complete auth=False usc=False exe=-
 POST /auth/two_step_login auth=True usc=False exe=/usr/sbin/gl_kvm_gui
 POST /auth/two_step_reject auth=False usc=False exe=/usr/sbin/gl_kvm_gui
 POST /auth/unlock_client auth=True usc=True exe=-
-POST /cloudflare/set_token auth=True usc=True exe=-
-POST /cloudflare/start auth=True usc=True exe=-
-POST /cloudflare/stop auth=True usc=True exe=-
 POST /custom_screen/delete_background auth=True usc=True exe=-
 POST /custom_screen/update_background auth=True usc=True exe=-
 POST /custom_screen/update_date_format auth=True usc=True exe=-
