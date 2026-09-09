@@ -276,6 +276,34 @@ Verified by inspection of a real upstream clone. Each of these is a better start
 - **apps/kvmd/api/redfish/** — a package upstream (__init__, atx, msd, root) against the fork's single api/redfish.py. Per the Redfish open decision above, the fork's version is worth keeping; upstream's is the better base for real BMC interop.
 - **plugins/msd/otg/fs.py** — 85 lines upstream, and the fork simply does not have the file (fork ships __init__, drive, storage; upstream ships those plus fs). Diff the three shared files and account for the missing fourth before trusting the fork's MSD path. Note also that upstream has no apps/kvmd/streamer.py — it lives at clients/streamer.py and api/streamer.py — so any streamer comparison must be done against those paths rather than by filename.
 
+### The lockout subsystem: repair R5.2/R5.8, or delete toward upstream?
+
+**DECIDED: delete it.** And it is the single biggest lever on the auth.py rebase question below, which is why the two are decided together.
+
+Measured at the end of step 3. The subsystem is auth.py:596-805 — **210 lines**, the whole tail of the class — plus its two routes in api/auth.py. Upstream `pikvm/kvmd` contains **zero** occurrences of rate_limit, lockout or unlock_client in its auth.py: this is not a feature the fork changed, it is a feature the fork invented.
+
+The case for deleting rather than repairing:
+
+- Repairing means deleting the `hash(client_ip) % 100 == 0` sampling (auth.py:252 and :417 — note :417 is inside pre_login, which step 5 deletes wholesale, so do not count that one as done by step 5 alone) AND removing the two routes that let any caller inspect and clear any address's lockout (api/auth.py:360, :379). After all that you still own a bespoke lockout with no upstream counterpart to track, in the file you are trying to converge.
+- Deleting removes 210 of the roughly 416 deletable lines in auth.py — over half — and closes R5.2 and R5.8 by construction rather than by patch.
+- The client-identity fix earlier on this branch made the identity real, which was the precondition for the limiter *working*. That is not the same as being worth keeping. It remains an attacker primitive by design (a route that unlocks any named address) on a device that belongs on a management VLAN behind certificate-only SSH.
+
+**State the counter-argument honestly:** a lockout does defend against online password guessing, and this device's admin password is stored with apr1/MD5 (docs/audit.md, HIGH), so a guessed or cracked password is worth real money to an attacker. If rate limiting is wanted, put it in nginx with `limit_req` — one location block, no in-daemon state, and no route that hands an attacker a lock-and-unlock primitive. Do not rebuild it in Python.
+
+### Does auth.py get rebased onto 4.213, or patched in place?
+
+**STILL DEFERRED, and the deferral condition has NOT been met.** Steps 4, 5 and 10 have not run — only step 3 (the strip) and the client-identity part of step 10 are done — so the honest answer is that there is nothing new to measure yet. What has changed is that the projection is now quantified rather than guessed:
+
+| | lines | vs upstream 322 |
+|---|---:|---|
+| auth.py today | 804 | 608 diff lines |
+| step 4 removes (TOTP) | ~13 | |
+| step 5 removes (two-step state machine) | ~193 | |
+| deleting the lockout subsystem (above) | 210 | |
+| **projected after all three** | **~388** | **~66 lines of size gap** |
+
+That is the number the decision actually turns on, and it moves the answer. At 608 diff lines a rebase is a rewrite; at a ~66-line gap it is a merge. So: **run steps 4 and 5 and delete the lockout subsystem, then re-measure and decide.** Do not decide it before, and do not treat the projection above as the measurement — it assumes the plan's own line ranges and none of those deletions have been performed.
+
 ### Is the executable-path primitive stripped, or hardened and reused for the beacon?
 
 **Recommendation:** Reuse it. It is the only local-caller authentication the fork has that actually works, and the beacon needs exactly that. DECIDED: the primitive SURVIVES the strip deliberately. htserver.get_request_exe_path, htserver.get_request_unix_credentials and api/auth._check_exe_path are KEEPS, and all three now carry DO-NOT-REMOVE comments pointing here, because after steps 3, 5 and 6 they have one caller left and will otherwise read as dead code to whoever runs the lint pass.
