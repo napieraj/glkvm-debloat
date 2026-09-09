@@ -294,6 +294,7 @@ def _patch_dynamic(  # pylint: disable=too-many-locals
     rebuild = False
 
     if load_auth:
+        scheme["kvmd"]["webauthn"].update(get_auth_service_class("webauthn").get_plugin_options())
         scheme["kvmd"]["auth"]["internal"].update(get_auth_service_class(config.kvmd.auth.internal.type).get_plugin_options())
         if config.kvmd.auth.external.type:
             scheme["kvmd"]["auth"]["external"].update(get_auth_service_class(config.kvmd.auth.external.type).get_plugin_options())
@@ -422,6 +423,17 @@ def _get_config_scheme() -> dict:
                 "heartbeat":         Option(15.0,  type=valid_float_f01),
                 "access_log_format": Option("[%P / %{X-Real-IP}i] '%r' => %s; size=%b ---"
                                             " referer='%{Referer}i'; user_agent='%{User-Agent}i'"),
+            },
+
+            # A section of its own, deliberately NOT kvmd/auth/{internal,external}.
+            # Those two feed AuthManager's password path, and a WebAuthn
+            # assertion cannot travel through authorize()'s passwd: str. Putting
+            # it here also keeps the integration's edit to auth.py at exactly one
+            # method. The plugin's authorize() fails closed if anyone wires it
+            # into an auth service slot anyway.
+            "webauthn": {
+                "enabled": Option(False, type=valid_bool),
+                # Dynamic content: the plugin's own options are merged below.
             },
 
             "auth": {

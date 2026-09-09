@@ -176,6 +176,53 @@ class AuthManager:  # pylint: disable=too-many-arguments,too-many-instance-attri
 
         return (None, 0)
 
+    def login_verified(self, user: str, expire: int) -> tuple[str, int]:
+        """Mint a session for a user already authenticated by other means.
+
+        The WebAuthn path (api/webauthn.py) proves possession of an enrolled
+        credential; it has no password and cannot go through login(), which
+        calls authorize() unconditionally. This mirrors login()'s success arm
+        and skips only that call, so a WebAuthn session is the SAME kind of
+        object as a password session: same token shape, same expiry clock, same
+        WS-extension behaviour, same failed-attempt bookkeeping.
+
+        Everything here is load-bearing and each detail fails silently if it is
+        changed, which is why testenv/tests/apps/kvmd/test_login_verified.py
+        asserts them one by one:
+
+        - the token comes from __make_new_token(), i.e. 64 lowercase hex; any
+          other shape is rejected by valid_auth_token on the NEXT request
+          rather than this one;
+        - expire_ts comes from __make_expire_ts(), which is built on
+          time.monotonic() and applies the global cap. A wall-clock timestamp
+          here produces sessions that never expire; a bare `expire` produces
+          ones that expire immediately;
+        - ws_started starts at 0 so the WS lifecycle can reference-count it;
+        - the failed-attempt counter is consumed, or the UI's
+          "failed since last success" never resets.
+        """
+        assert user == user.strip()
+        assert user
+        assert expire >= 0
+        assert self.__enabled
+
+        token = self.__make_new_token()
+        session = _Session(
+            user=user,
+            expire_req=expire,
+            expire_ts=self.__make_expire_ts(expire),
+            ws_started=0,
+        )
+        self.__sessions[token] = session
+        failed_since_last = self.__consume_failed_since_last_success()
+        get_logger(0).info("Logged in user %r (verified); expire=%s, sessions_now=%d,"
+                           " failed_since_last_success=%d",
+                           session.user,
+                           self.__format_expire_ts(session.expire_ts),
+                           self.__get_sessions_number(session.user),
+                           failed_since_last)
+        return (token, failed_since_last)
+
     def __consume_failed_since_last_success(self) -> int:
         """返回自上一次登录成功以来累计的全局登录失败次数，并清零计数。"""
         count = self.__failed_since_last_success

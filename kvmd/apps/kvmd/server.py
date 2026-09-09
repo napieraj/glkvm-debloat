@@ -69,6 +69,7 @@ from ...validators.kvm import valid_stream_zero_delay
 from ...validators.kvm import valid_stream_venc_mode
 
 from .auth import AuthManager
+from ...plugins.auth import BaseAuthService
 from .init import InitManager
 from .info import InfoManager
 from .logreader import LogReader
@@ -79,6 +80,7 @@ from .ocr import Ocr
 from .switch import Switch
 
 from .api.auth import AuthApi
+from .api.webauthn import WebAuthnApi
 from .api.auth import check_request_auth
 
 from .api.init import InitApi
@@ -166,6 +168,7 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
     def __init__(  # pylint: disable=too-many-arguments,too-many-locals
         self,
         auth_manager: AuthManager,
+        webauthn: BaseAuthService,
         init_manager: InitManager,
         info_manager: InfoManager,
         log_reader: (LogReader | None),
@@ -203,6 +206,7 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
         self.__apis: list[object] = [
             self,
             AuthApi(auth_manager),
+            WebAuthnApi(auth_manager, webauthn),
             InitApi(init_manager),
             self.__fingerbot_api,
             WolApi(),
