@@ -110,7 +110,7 @@ class Plugin(BaseAtx):
     @aiotools.atomic_fg
     async def __run_cmd(self, action: str, wait: bool) -> None:
         if wait:
-            async with self.__region:
+            with self.__region:
                 await self.__inner_run_cmd(action)
         else:
             await aiotools.run_region_task(

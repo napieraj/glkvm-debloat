@@ -18,7 +18,7 @@ Every security defect found in it lives in code PiKVM never wrote.
 | API layer growth | **6.5×** — 11,436 lines of route code against upstream's 1,769 |
 | New tests for it | **0** — roughly 9,700 added API lines ship with no test of their own |
 | Lint, identical config | **742** violations of the fork's own checked-in flake8 rules (upstream: none) |
-| Findings, all fork-only | **16** — three reach root, two of them without credentials |
+| Findings, all fork-only | **17** — three reach root, two of them without credentials |
 
 ---
 
@@ -80,7 +80,7 @@ whitespace-on-blank-line, 75 missing-space-after-comma and 71 unused imports.
 
 ---
 
-## 3. Security — sixteen findings, three of them reach root
+## 3. Security — seventeen findings, three of them reach root
 
 Severity here is consequence on a device whose stated job is out-of-band access to
 other machines. A defect that yields a root shell on the KVM yields the console of
@@ -285,6 +285,26 @@ MAC address, IP and device name are persisted and written to logs without
 validation, despite a MAC validator already existing in the fork's shared helpers.
 
 *fork-only · reported · `api/wol.py`*
+
+### MEDIUM — ATX power control raises TypeError whenever the caller waits
+
+`__run_cmd` does `async with self.__region` on an `AioExclusiveRegion`, which the
+fork rewrote as a *synchronous* context manager with plain `enter()`/`exit()`
+(`aiotools.py:317-344`). So every ATX operation called with `wait=true` — power on,
+power off, hard off, hard reset, and the three click variants — raises `TypeError`
+before it reaches the hardware. The `wait=false` path works, because it goes through
+`aiotools.run_region_task`, which uses the region correctly.
+
+This is a single-word defect and the only site of its kind in the tree: the other ATX
+backend, `plugins/atx/gpio.py:194`, has always used the correct `with self.__region`.
+It reached shipping firmware because the fork's own test suite could not run at all —
+see the finding above — so nothing exercised the path.
+
+Out-of-band power control that fails whenever the caller asks to wait for completion
+is a direct hit on the device's stated job, and the failure is silent to an operator
+who only ever uses the fire-and-forget path.
+
+*fork-only · verified · `plugins/atx/glatx.py:113`, correct form at `plugins/atx/gpio.py:194`*
 
 ### MEDIUM — The daemon fails to start if a hardware file is missing
 
