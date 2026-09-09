@@ -197,7 +197,23 @@ unthrottled remainder and can tell by observation when they have.
 Deleting the sampling is necessary but not sufficient. It only becomes a limiter
 once the identity is real.
 
-*fork-only · verified · `auth.py:248, 413`*
+**CLOSED BY DELETION on this branch, not by repair.** The whole rate-limit /
+lockout / unlock subsystem is gone: 226 lines out of `auth.py` and three routes out
+of `api/auth.py`. Upstream `pikvm/kvmd` has never had any of it — zero occurrences of
+`rate_limit`, `lockout` or `unlock_client` in its `auth.py` — so removing it converges
+the file toward upstream instead of leaving a bespoke subsystem with no counterpart to
+track. Repairing it would have meant deleting the sampling AND the two routes below,
+after which the remaining feature still had no upstream equivalent.
+
+**Replacement for online-guessing defence: nginx `limit_req`.** Deleting the lockout
+does remove a real defence, and that matters more here than it would elsewhere, because
+web-set passwords are stored with apr1/MD5 (see the hashing finding above), so a
+guessed password is also a crackable one. The right place for the replacement is one
+`limit_req` directive in the nginx location that fronts `/api/auth/login` — no
+in-daemon state, no shared identity to spoof, and no route that hands an attacker a
+lock-and-unlock primitive against an address of their choosing.
+
+*fork-only · verified · `auth.py:248, 413` (as found); removed on this branch*
 
 ### HIGH — Lockouts can be inspected and cleared for any address
 
@@ -206,7 +222,11 @@ once the identity is real.
 Together with header-controlled identity, that is a complete lock, inspect and
 unlock primitive against any identity an attacker cares to name.
 
-*fork-only · verified · `api/auth.py:350, 366–377`*
+**CLOSED BY DELETION on this branch.** `GET /auth/rate_limit_status`,
+`GET /auth/locked_clients` and `POST /auth/unlock_client` are all removed with the
+subsystem they served. The primitive is gone rather than restricted.
+
+*fork-only · verified · `api/auth.py:350, 366–377` (as found); removed on this branch*
 
 ### HIGH — Web-set passwords are hashed with apr1/MD5 while the CLI uses SHA-512
 

@@ -2,8 +2,6 @@ DELETE /streamer/snapshot auth=True usc=True exe=-
 DELETE /system/clients/{client_id} auth=True usc=True exe=/usr/sbin/gl_kvm_gui
 GET /atx auth=True usc=True exe=-
 GET /auth/check auth=True usc=False exe=-
-GET /auth/locked_clients auth=True usc=True exe=-
-GET /auth/rate_limit_status auth=True usc=True exe=-
 GET /export/prometheus/metrics auth=True usc=True exe=-
 GET /fingerbot/battery auth=True usc=True exe=-
 GET /fingerbot/click auth=True usc=True exe=-
@@ -73,7 +71,6 @@ POST /atx/click auth=True usc=True exe=-
 POST /atx/power auth=True usc=True exe=-
 POST /auth/login auth=False usc=False exe=-
 POST /auth/logout auth=True usc=False exe=-
-POST /auth/unlock_client auth=True usc=True exe=-
 POST /fingerbot/upgrade auth=True usc=True exe=-
 POST /fingerbot/upload auth=True usc=True exe=-
 POST /gpio/pulse auth=True usc=True exe=-

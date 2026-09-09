@@ -116,10 +116,6 @@ def main(argv: (list[str] | None)=None) -> None:
             ext_kwargs=(config.auth.external._unpack(ignore=["type"]) if config.auth.external.type else {}),
 
 
-            rate_limit_enabled=config.auth.rate_limit.enabled,
-            rate_limit_max_attempts=config.auth.rate_limit.max_attempts,
-            rate_limit_time_window=config.auth.rate_limit.time_window,
-            rate_limit_lockout_duration=config.auth.rate_limit.lockout_duration,
 
         ),
         init_manager=InitManager(),

@@ -66,9 +66,6 @@ from ..validators.basic import valid_string_list
 from ..validators.auth import valid_user
 from ..validators.auth import valid_users_list
 from ..validators.auth import valid_expire
-from ..validators.auth import valid_rate_limit_max_attempts
-from ..validators.auth import valid_rate_limit_time_window
-from ..validators.auth import valid_rate_limit_lockout_duration
 
 from ..validators.os import valid_abs_path
 from ..validators.os import valid_abs_file
@@ -447,12 +444,6 @@ def _get_config_scheme() -> dict:
                     # Dynamic content
                 },
 
-                "rate_limit": {
-                    "enabled":           Option(True, type=valid_bool),
-                    "max_attempts":      Option(10,   type=valid_rate_limit_max_attempts),
-                    "time_window":       Option(600,  type=valid_rate_limit_time_window),
-                    "lockout_duration":  Option(600,  type=valid_rate_limit_lockout_duration),
-                },
 
             },
 

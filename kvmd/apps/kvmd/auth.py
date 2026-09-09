@@ -20,7 +20,6 @@
 # ========================================================================== #
 
 
-import asyncio
 import pwd
 import grp
 import dataclasses
@@ -57,27 +56,6 @@ class _Session:
         assert self.expire_ts >= 0
 
 
-@dataclasses.dataclass
-class _LoginAttempt:
-    timestamp: float
-
-
-@dataclasses.dataclass
-class _ClientLockInfo:
-    locked_until: float
-    failed_attempts: list[_LoginAttempt]
-
-    def __post_init__(self) -> None:
-        if not hasattr(self, 'failed_attempts') or self.failed_attempts is None:
-            self.failed_attempts = []
-
-
-class RateLimitError(Exception):
-    def __init__(self, msg: str, remaining_time: int = 0) -> None:
-        super().__init__(msg)
-        self.remaining_time = remaining_time
-
-
 class AuthManager:  # pylint: disable=too-many-arguments,too-many-instance-attributes
     def __init__(
         self,
@@ -93,11 +71,6 @@ class AuthManager:  # pylint: disable=too-many-arguments,too-many-instance-attri
 
         ext_type: str,
         ext_kwargs: dict,
-
-        rate_limit_enabled: bool = True,
-        rate_limit_max_attempts: int = 10,
-        rate_limit_time_window: int = 600,
-        rate_limit_lockout_duration: int = 600,
     ) -> None:
 
         logger = get_logger(0)
@@ -138,25 +111,9 @@ class AuthManager:  # pylint: disable=too-many-arguments,too-many-instance-attri
 
         self.__sessions: dict[str, _Session] = {}  # {token: session}
 
-        # Rate limiting configuration
-        self.__rate_limit_enabled = rate_limit_enabled
-        self.__rate_limit_max_attempts = rate_limit_max_attempts
-        self.__rate_limit_time_window = rate_limit_time_window
-        self.__rate_limit_lockout_duration = rate_limit_lockout_duration
-
-        # Rate limiting state
-        self.__client_locks: dict[str, _ClientLockInfo] = {}  # {client_ip: lock_info}
-        self.__rate_limit_lock = asyncio.Lock()
-
         # 自上一次登录成功以来的全局登录失败次数（仅内存，重启清零），
         # 用于在登录成功时提示用户是否疑似遭遇暴力破解。
         self.__failed_since_last_success = 0
-
-        if self.__rate_limit_enabled:
-            logger.info("Login rate limiting enabled: max_attempts=%d, time_window=%ds, lockout_duration=%ds",
-                        self.__rate_limit_max_attempts,
-                        self.__rate_limit_time_window,
-                        self.__rate_limit_lockout_duration)
 
     def is_auth_enabled(self) -> bool:
         return self.__enabled
@@ -188,26 +145,11 @@ class AuthManager:  # pylint: disable=too-many-arguments,too-many-instance-attri
             logger.error("Got access denied for user %r from auth service %r", user, pname)
         return ok
 
-    async def login(self, user: str, passwd: str, expire: int, client_ip: str = 'unknown') -> tuple[str | None, int]:
+    async def login(self, user: str, passwd: str, expire: int) -> tuple[str | None, int]:
         assert user == user.strip()
         assert user
         assert expire >= 0
         assert self.__enabled
-
-        # Check if client is rate limited
-        if self.__rate_limit_enabled:
-            is_locked, remaining_time = await self._is_client_locked(client_ip)
-            if is_locked:
-                get_logger(0).warning("Rate limit: Login attempt blocked for client %s, %d seconds remaining",
-                                      client_ip, remaining_time)
-                raise RateLimitError(
-                    f"Too many failed login attempts. Please try again in {remaining_time} seconds.",
-                    remaining_time
-                )
-
-        # Perform cleanup periodically (every 100th login attempt)
-        if self.__rate_limit_enabled and hash(client_ip) % 100 == 0:
-            await self._cleanup_expired_data()
 
         if (await self.authorize(user, passwd)):
             token = self.__make_new_token()
@@ -225,16 +167,6 @@ class AuthManager:  # pylint: disable=too-many-arguments,too-many-instance-attri
             return (token, failed_since_last)
         else:
             self.__failed_since_last_success += 1
-            # Record failed attempt for rate limiting
-            if self.__rate_limit_enabled:
-                await self._record_failed_attempt(client_ip)
-                # Check if client is now locked after this attempt
-                is_locked, remaining_time = await self._is_client_locked(client_ip)
-                if is_locked:
-                    raise RateLimitError(
-                        f"Account temporarily locked due to too many failed attempts. Please try again in {remaining_time} seconds.",
-                        remaining_time
-                    )
 
         return (None, 0)
 
@@ -427,160 +359,3 @@ class AuthManager:  # pylint: disable=too-many-arguments,too-many-instance-attri
                 if first:
                     return first
         return (self.__get_peer_ip(req) or "unknown")
-
-    async def _is_client_locked(self, client_ip: str) -> tuple[bool, int]:
-        """Check if client is currently locked. Returns (is_locked, remaining_seconds)."""
-        if not self.__rate_limit_enabled:
-            return False, 0
-
-        async with self.__rate_limit_lock:
-            lock_info = self.__client_locks.get(client_ip)
-            if not lock_info:
-                return False, 0
-
-            current_time = time.time()
-            if lock_info.locked_until > current_time:
-                remaining = int(lock_info.locked_until - current_time)
-                return True, remaining
-            else:
-                # Lock has expired, remove it
-                if lock_info.locked_until > 0:  # Was actually locked
-                    get_logger(0).info("Rate limit lock expired for client %s", client_ip)
-                    del self.__client_locks[client_ip]
-                return False, 0
-
-    async def _record_failed_attempt(self, client_ip: str) -> None:
-        """Record a failed login attempt for the client."""
-        if not self.__rate_limit_enabled:
-            return
-
-        current_time = time.time()
-        async with self.__rate_limit_lock:
-            if client_ip not in self.__client_locks:
-                self.__client_locks[client_ip] = _ClientLockInfo(
-                    locked_until=0,
-                    failed_attempts=[]
-                )
-
-            lock_info = self.__client_locks[client_ip]
-            lock_info.failed_attempts.append(_LoginAttempt(timestamp=current_time))
-
-            # Clean up old attempts outside the time window
-            cutoff_time = current_time - self.__rate_limit_time_window
-            lock_info.failed_attempts = [
-                attempt for attempt in lock_info.failed_attempts
-                if attempt.timestamp > cutoff_time
-            ]
-
-            # Check if we should lock the client
-            if self._should_lock_client(lock_info):
-                self._lock_client(client_ip, lock_info, current_time)
-
-    def _should_lock_client(self, lock_info: _ClientLockInfo) -> bool:
-        """Check if client should be locked based on failed attempts."""
-        return len(lock_info.failed_attempts) >= self.__rate_limit_max_attempts
-
-    def _lock_client(self, client_ip: str, lock_info: _ClientLockInfo, current_time: float) -> None:
-        """Lock the client for the configured duration."""
-        lock_info.locked_until = current_time + self.__rate_limit_lockout_duration
-        get_logger(0).warning("Rate limit: Locking client %s for %d seconds due to %d failed attempts",
-                              client_ip,
-                              self.__rate_limit_lockout_duration,
-                              len(lock_info.failed_attempts))
-
-    async def _cleanup_expired_data(self) -> None:
-        """Clean up expired rate limiting data to prevent memory leaks."""
-        if not self.__rate_limit_enabled:
-            return
-
-        current_time = time.time()
-        cutoff_time = current_time - self.__rate_limit_time_window
-
-        async with self.__rate_limit_lock:
-            clients_to_remove = []
-            for client_ip, lock_info in self.__client_locks.items():
-                # Remove expired locks and old failed attempts
-                if lock_info.locked_until > 0 and lock_info.locked_until <= current_time:
-                    lock_info.locked_until = 0
-
-                # Clean up old attempts
-                lock_info.failed_attempts = [
-                    attempt for attempt in lock_info.failed_attempts
-                    if attempt.timestamp > cutoff_time
-                ]
-
-                # If no recent attempts and not locked, remove the entry
-                if not lock_info.failed_attempts and lock_info.locked_until <= current_time:
-                    clients_to_remove.append(client_ip)
-
-            for client_ip in clients_to_remove:
-                del self.__client_locks[client_ip]
-
-    async def get_rate_limit_status(self, client_ip: str) -> dict:
-        """Get rate limiting status for a client (for monitoring/debugging)."""
-        if not self.__rate_limit_enabled:
-            return {"enabled": False}
-
-        async with self.__rate_limit_lock:
-            lock_info = self.__client_locks.get(client_ip)
-            if not lock_info:
-                return {
-                    "enabled": True,
-                    "locked": False,
-                    "failed_attempts": 0,
-                    "remaining_attempts": self.__rate_limit_max_attempts
-                }
-
-            current_time = time.time()
-            is_locked = lock_info.locked_until > current_time
-            remaining_lock_time = max(0, int(lock_info.locked_until - current_time)) if is_locked else 0
-
-            # Count recent attempts
-            cutoff_time = current_time - self.__rate_limit_time_window
-            recent_attempts = len([
-                attempt for attempt in lock_info.failed_attempts
-                if attempt.timestamp > cutoff_time
-            ])
-
-            return {
-                "enabled": True,
-                "locked": is_locked,
-                "locked_until": lock_info.locked_until if is_locked else 0,
-                "remaining_lock_time": remaining_lock_time,
-                "failed_attempts": recent_attempts,
-                "remaining_attempts": max(0, self.__rate_limit_max_attempts - recent_attempts)
-            }
-
-    async def unlock_client(self, client_ip: str) -> bool:
-        """Manually unlock a client (for admin use). Returns True if client was unlocked."""
-        if not self.__rate_limit_enabled:
-            return False
-
-        async with self.__rate_limit_lock:
-            lock_info = self.__client_locks.get(client_ip)
-            if lock_info and lock_info.locked_until > time.time():
-                lock_info.locked_until = 0
-                lock_info.failed_attempts.clear()
-                get_logger(0).info("Rate limit: Manually unlocked client %s", client_ip)
-                return True
-            return False
-
-    async def get_all_locked_clients(self) -> dict[str, dict]:
-        """Get status of all currently locked clients (for monitoring)."""
-        if not self.__rate_limit_enabled:
-            return {}
-
-        current_time = time.time()
-        locked_clients = {}
-
-        async with self.__rate_limit_lock:
-            for client_ip, lock_info in self.__client_locks.items():
-                if lock_info.locked_until > current_time:
-                    remaining_time = int(lock_info.locked_until - current_time)
-                    locked_clients[client_ip] = {
-                        "locked_until": lock_info.locked_until,
-                        "remaining_time": remaining_time,
-                        "failed_attempts": len(lock_info.failed_attempts)
-                    }
-
-        return locked_clients
