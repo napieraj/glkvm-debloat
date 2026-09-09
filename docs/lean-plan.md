@@ -312,6 +312,14 @@ What remains fork-only in auth.py is six things, and only three are real product
 
 What the rebase would INHERIT, beyond 131 releases of unnamed fixes: upstream's WS session lifecycle, `sysprep()`, and config-driven construction via `yamlconf.Section`.
 
+### SUPERSEDED — TOTP stays removed. Do NOT restore it.
+
+**This overrides the "TOTP returns with the rebase" reasoning below and any handoff note saying the same.** That reasoning was conditional on a rebase happening: a rebase would have re-imported upstream's TOTP, so removing it again would have been a patch to re-apply on every future rebase, and letting it come back was the cheaper option. The scope decision was a BEHAVIOUR-PORT instead. There is no future rebase to re-apply against, so the standing-patch cost is zero and the only argument for restoring TOTP is gone with it.
+
+Concretely: do not restore `pyotp`, `qrcode`, `configs/kvmd/totp.secret`, `kvmd/apps/totp/`, the `#code-input` field, or the enforcement block. Step 4 stands.
+
+Interim auth is therefore **password-only**, defended by network isolation and (still to be added) `nginx limit_req`, until WebAuthn lands in steps 11 and 12. A future reader finding TOTP absent should NOT "fix" it by restoring it — that reopens exactly the divergence this note settles.
+
 ### CORRECTION: step 4 removed UPSTREAM code, not fork cruft
 
 This matters for the rebase and the plan is wrong about it. Upstream 4.213 has TOTP: the same enforcement block with the same six-character slice (`auth.py:137-142`), the same `kvmd-totp` CLI (`kvmd/apps/totp/`), and the same `#code-input` field in `web/login/index.{pug,html}`. The fork INHERITED all of it. The fork's own addition was only `api/twofa.py`, the six routes, which upstream has no counterpart for and which step 3 removed as module 3.

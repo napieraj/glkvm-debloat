@@ -607,6 +607,35 @@ the same time, and every authorisation decision was wired to the wrong one.
 
 *verified · upstream `htserver.py:302-313`, fork `htserver.py:324-338` vs `auth.py:594-607`*
 
+## 3d. Interim authentication posture on this branch
+
+Stated because the branch is mid-refactor and a reader arriving now will otherwise
+mistake a deliberate gap for an oversight.
+
+**Second factor: none.** TOTP is removed and is not coming back. It was inherited from
+upstream rather than invented by the fork (upstream 4.213 still ships it), and removing
+it was a product decision: WebAuthn replaces it in the plan's steps 11 and 12. So
+between now and then, authentication is **password-only**.
+
+**In-application rate limiting: none.** The lockout subsystem is deleted (see the two
+findings above, both closed by deletion). Nothing in kvmd now throttles login attempts.
+
+What that leaves defending the login form, in order of what actually carries weight:
+
+1. **Network isolation.** The device belongs on a management VLAN. This is doing most
+   of the work and should be treated as load-bearing rather than as defence in depth.
+2. **`nginx limit_req`** — the recommended replacement, **not yet added**. It is the
+   one outstanding item in this posture and it is cheap: a single directive on the
+   location fronting `/api/auth/login`.
+3. **Password strength.** `valid_new_passwd` enforces 10-63 characters from at least
+   two character classes on the enrolment path, and the stored hash is now
+   `{SSHA512}` rather than apr1.
+
+Read together with the operator action below: an interim password-only posture is only
+as good as the password, and a password set before the hashing fix was stored weakly.
+
+*Recorded 2026-09-09, on branch `claude/glkvm-status-hutk39`*
+
 ## 4. Comparison — upstream already solved three of these
 
 The most useful result of the comparison is not the count. It is that the correct
@@ -686,6 +715,20 @@ because it uses f-string syntax introduced in 3.12; those are an artefact of the
 analysis environment, not defects in upstream, and are excluded from its count.
 
 ---
+
+## OPERATOR ACTION REQUIRED — change the password, do not just upgrade
+
+The `{SSHA512}` fix protects passwords set **from now on**. It does not retroactively
+strengthen anything already on disk: an `/etc/kvmd/user/htpasswd` written before the fix
+still contains `$apr1$`, Apache's 1000-iteration MD5, and the file is reachable through
+several of the read paths in this audit.
+
+So on any device that was running the pre-fix firmware:
+
+**Upgrading is not sufficient. Change the admin password after upgrading.** That is what
+rewrites the stored hash. Until it is changed, the device carries a cheaply crackable
+hash of its current password regardless of the fix, and the current interim posture is
+password-only.
 
 ## Verification addendum (2026-09-09)
 
