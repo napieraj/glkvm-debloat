@@ -39,9 +39,9 @@ from kvmd.htserver import HttpExposed
 
 
 # =====
-_E_AUTH = HttpExposed("GET", "/foo_auth", True, (lambda: None))
-_E_UNAUTH = HttpExposed("GET", "/bar_unauth", True, (lambda: None))
-_E_FREE = HttpExposed("GET", "/baz_free", False, (lambda: None))
+_E_AUTH = HttpExposed("GET", "/foo_auth", True, True, (), (lambda: None))
+_E_UNAUTH = HttpExposed("GET", "/bar_unauth", True, True, (), (lambda: None))
+_E_FREE = HttpExposed("GET", "/baz_free", False, True, (), (lambda: None))
 
 
 def _make_service_kwargs(path: str) -> dict:
@@ -60,14 +60,17 @@ async def _get_configured_manager(
 
     manager = AuthManager(
         enabled=True,
+        expire=0,
+        usc_users=[],
+        usc_groups=[],
         unauth_paths=unauth_paths,
 
-        internal_type="htpasswd",
-        internal_kwargs=_make_service_kwargs(internal_path),
-        force_internal_users=(force_internal_users or []),
+        int_type="htpasswd",
+        int_kwargs=_make_service_kwargs(internal_path),
+        force_int_users=(force_internal_users or []),
 
-        external_type=("htpasswd" if external_path else ""),
-        external_kwargs=(_make_service_kwargs(external_path) if external_path else {}),
+        ext_type=("htpasswd" if external_path else ""),
+        ext_kwargs=(_make_service_kwargs(external_path) if external_path else {}),
 
         totp_secret_path="",
     )
@@ -96,15 +99,15 @@ async def test_ok__internal(tmpdir) -> None:  # type: ignore
         assert manager.check("xxx") is None
         manager.logout("xxx")
 
-        assert (await manager.login("user", "foo")) is None
-        assert (await manager.login("admin", "foo")) is None
-        assert (await manager.login("user", "pass")) is None
+        assert (await manager.login("user", "foo", 0))[0] is None
+        assert (await manager.login("admin", "foo", 0))[0] is None
+        assert (await manager.login("user", "pass", 0))[0] is None
 
-        token1 = await manager.login("admin", "pass")
+        (token1, _) = await manager.login("admin", "pass", 0)
         assert isinstance(token1, str)
         assert len(token1) == 64
 
-        token2 = await manager.login("admin", "pass")
+        (token2, _) = await manager.login("admin", "pass", 0)
         assert isinstance(token2, str)
         assert len(token2) == 64
         assert token1 != token2
@@ -113,13 +116,17 @@ async def test_ok__internal(tmpdir) -> None:  # type: ignore
         assert manager.check(token2) == "admin"
         assert manager.check("foobar") is None
 
+        # The fork's logout() closes only the session it is given. Upstream
+        # closed every session belonging to that user, and the loop that did
+        # so survives commented out at auth.py:337-341. token2 therefore stays
+        # valid here; this assertion records the fork's behaviour, not a wish.
         manager.logout(token1)
 
         assert manager.check(token1) is None
-        assert manager.check(token2) is None
+        assert manager.check(token2) == "admin"
         assert manager.check("foobar") is None
 
-        token3 = await manager.login("admin", "pass")
+        (token3, _) = await manager.login("admin", "pass", 0)
         assert isinstance(token3, str)
         assert len(token3) == 64
         assert token1 != token3
@@ -147,17 +154,17 @@ async def test_ok__external(tmpdir) -> None:  # type: ignore
         assert manager.is_auth_required(_E_UNAUTH)
         assert not manager.is_auth_required(_E_FREE)
 
-        assert (await manager.login("local", "foobar")) is None
-        assert (await manager.login("admin", "pass2")) is None
+        assert (await manager.login("local", "foobar", 0))[0] is None
+        assert (await manager.login("admin", "pass2", 0))[0] is None
 
-        token = await manager.login("admin", "pass1")
+        (token, _) = await manager.login("admin", "pass1", 0)
         assert token is not None
 
         assert manager.check(token) == "admin"
         manager.logout(token)
         assert manager.check(token) is None
 
-        token = await manager.login("user", "foobar")
+        (token, _) = await manager.login("user", "foobar", 0)
         assert token is not None
 
         assert manager.check(token) == "user"
@@ -191,14 +198,17 @@ async def test_ok__disabled() -> None:
     try:
         manager = AuthManager(
             enabled=False,
+            expire=0,
+            usc_users=[],
+            usc_groups=[],
             unauth_paths=[],
 
-            internal_type="foobar",
-            internal_kwargs={},
-            force_internal_users=[],
+            int_type="foobar",
+            int_kwargs={},
+            force_int_users=[],
 
-            external_type="",
-            external_kwargs={},
+            ext_type="",
+            ext_kwargs={},
 
             totp_secret_path="",
         )
@@ -212,7 +222,7 @@ async def test_ok__disabled() -> None:
             await manager.authorize("admin", "admin")
 
         with pytest.raises(AssertionError):
-            await manager.login("admin", "admin")
+            await manager.login("admin", "admin", 0)
 
         with pytest.raises(AssertionError):
             manager.logout("xxx")

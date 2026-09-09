@@ -28,6 +28,8 @@ try:
 except ImportError:
     _user_agents = None  # type: ignore
 
+from .logging import get_logger
+
 
 MODEL_PATH = "/proc/gl-hw-info/model"
 
