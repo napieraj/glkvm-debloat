@@ -18,7 +18,7 @@ Every security defect found in it lives in code PiKVM never wrote.
 | API layer growth | **6.5×** — 11,436 lines of route code against upstream's 1,769 |
 | New tests for it | **0** — roughly 9,700 added API lines ship with no test of their own |
 | Lint, identical config | **742** violations of the fork's own checked-in flake8 rules (upstream: none) |
-| Findings, all fork-only | **17** — three reach root, two of them without credentials |
+| Findings, all fork-only | **18** — three reach root, two of them without credentials |
 
 ---
 
@@ -80,7 +80,7 @@ whitespace-on-blank-line, 75 missing-space-after-comma and 71 unused imports.
 
 ---
 
-## 3. Security — seventeen findings, three of them reach root
+## 3. Security — eighteen findings, three of them reach root
 
 Severity here is consequence on a device whose stated job is out-of-band access to
 other machines. A defect that yields a root shell on the KVM yields the console of
@@ -196,6 +196,37 @@ Together with header-controlled identity, that is a complete lock, inspect and
 unlock primitive against any identity an attacker cares to name.
 
 *fork-only · verified · `api/auth.py:350, 366–377`*
+
+### HIGH — Web-set passwords are hashed with apr1/MD5 while the CLI uses SHA-512
+
+The device has two htpasswd write paths and they do not agree on how to hash.
+
+`kvmd-htpasswd` writes through `KvmdHtpasswdFile`, whose context defaults to
+`ldap_salted_sha512` (`crypto.py:33-58`). The web and API paths do not: `InitManager`
+imports `_get_htpasswd_for_write_from_file` (`init.py:32`, used at `:151` and `:183`)
+and that helper builds a plain `passlib.apache.HtpasswdFile`
+(`apps/htpasswd/__init__.py:54`), whose default scheme is `apr_md5_crypt`.
+
+Verified by writing the same password through both classes:
+
+    passlib.apache.HtpasswdFile  ->  admin:$apr1$RsF5iZGE$k3hAvd089ha5XUPFoHoac0
+    KvmdHtpasswdFile             ->  admin:{SSHA512}oRRGTC3CAMOc9PBSD3RUNbR4fKxo...
+
+`$apr1$` is Apache's 1000-iteration MD5 construction. It is not a password hash by any
+current standard, and offline cracking of one is cheap.
+
+So every password a user actually sets — through the initialisation flow and through
+`/init/change_password` — is stored with the weak scheme, while the strong one sits
+in the same repository, is implemented correctly, and is used only by a command-line
+tool the operator may never run. The fork built the right primitive and then routed
+the common path around it.
+
+This compounds the uninitialised-device finding above. The admin password an attacker
+sets via `/init/init` is stored this way, and so is the legitimate owner's: anyone who
+obtains `/etc/kvmd/user/htpasswd` — by any of the file-read paths in this audit —
+recovers the admin password rather than merely a hash they cannot use.
+
+*fork-only · verified · `apps/htpasswd/__init__.py:54` vs `crypto.py:51-58`, callers at `init.py:151, 183`*
 
 ### MEDIUM — Passwords travel in the query string, with the guard commented out
 
