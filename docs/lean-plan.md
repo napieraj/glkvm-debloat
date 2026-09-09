@@ -290,6 +290,42 @@ The case for deleting rather than repairing:
 
 **State the counter-argument honestly:** a lockout does defend against online password guessing, and this device's admin password is stored with apr1/MD5 (docs/audit.md, HIGH), so a guessed or cracked password is worth real money to an attacker. If rate limiting is wanted, put it in nginx with `limit_req` — one location block, no in-daemon state, and no route that hands an attacker a lock-and-unlock primitive. Do not rebuild it in Python.
 
+### MEASURED: auth.py after steps 4, 5 and the lockout deletion
+
+Steps 4, 5 and the lockout deletion have now run. The measurement, against `pikvm/kvmd` @ `15bccd5`:
+
+| | before | after |
+|---|---:|---:|
+| fork auth.py | 804 lines | **361 lines** |
+| upstream auth.py | 322 | 322 |
+| size gap | 482 | **39** |
+| diff lines | 608 | **199** |
+| diff hunks | — | **10** |
+
+The projection said ~388 lines and a ~66-line gap; the actual is 361 and 39. Under the ≲100 criterion, **the recommendation is to rebase.** The divergence is also concentrated rather than scattered — ten hunks, not a hundred.
+
+What remains fork-only in auth.py is six things, and only three are real product need:
+
+- `_get_client_ip`, `__is_trusted_peer`, `__get_peer_ip` — the socket-peer identity fix. Its only surviving consumer is `/same_check`'s local-network gate. If `same_check` is rebuilt per its own open decision, these move there and auth.py loses them entirely.
+- `login()` returning `(token, failed_since_last_success)` plus `__consume_failed_since_last_success` — a real GL product feature (the UI shows failed attempts since last success). Genuine delta, keep.
+- `refresh_token_expiry` — **drop this one in the rebase.** Upstream solves the same concern better with `start_ws_session` / `stop_ws_session` / `__renew_ws_session`, called from its own server.py. Re-applying the fork's version would keep the worse of two designs.
+
+What the rebase would INHERIT, beyond 131 releases of unnamed fixes: upstream's WS session lifecycle, `sysprep()`, and config-driven construction via `yamlconf.Section`.
+
+### CORRECTION: step 4 removed UPSTREAM code, not fork cruft
+
+This matters for the rebase and the plan is wrong about it. Upstream 4.213 has TOTP: the same enforcement block with the same six-character slice (`auth.py:137-142`), the same `kvmd-totp` CLI (`kvmd/apps/totp/`), and the same `#code-input` field in `web/login/index.{pug,html}`. The fork INHERITED all of it. The fork's own addition was only `api/twofa.py`, the six routes, which upstream has no counterpart for and which step 3 removed as module 3.
+
+So step 4 was a product decision — this project replaces TOTP with WebAuthn in steps 11 and 12 — and not a debloat. It **increased** divergence from upstream. Two consequences:
+
+1. The plan's strategic argument that "steps 1, 2, 4, 5, 6 and 10 all reduce the diff against upstream, so they are the same work either way" is wrong for step 4. It is the same work only if the WebAuthn replacement actually lands.
+2. A rebase onto 4.213 brings TOTP back, and removing it becomes a permanent fork delta to re-apply on every future rebase. Budget for that, or reconsider whether removing it was worth it given upstream maintains it and WebAuthn is not written yet.
+
+### The other two shared files, measured at the same point
+
+- `htserver.py` — upstream 541, fork 569, **136 diff lines**. Unchanged by this work and still the cheapest rebase available.
+- `api/auth.py` — upstream 150, fork 290, **214 diff lines**. Now the LARGEST remaining divergence in the auth stack, having overtaken auth.py. It still holds `/same_check`, the query-token acceptance (R5.9) and the header-parsing call sites. Whatever is decided for auth.py, this file needs its own pass.
+
 ### Does auth.py get rebased onto 4.213, or patched in place?
 
 **STILL DEFERRED, and the deferral condition has NOT been met.** Steps 4, 5 and 10 have not run — only step 3 (the strip) and the client-identity part of step 10 are done — so the honest answer is that there is nothing new to measure yet. What has changed is that the projection is now quantified rather than guessed:
