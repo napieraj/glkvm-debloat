@@ -7,11 +7,6 @@ GET /2fa/is_enabled auth=False usc=True exe=-
 GET /2fa/show auth=True usc=True exe=-
 GET /2fa/verify auth=True usc=True exe=-
 GET /ap/status auth=True usc=True exe=-
-GET /astrowarp/enable auth=True usc=True exe=-
-GET /astrowarp/get_bind_link auth=True usc=True exe=-
-GET /astrowarp/get_dynamic_code auth=True usc=True exe=-
-GET /astrowarp/show auth=True usc=True exe=-
-GET /astrowarp/status auth=True usc=True exe=-
 GET /atx auth=True usc=True exe=-
 GET /auth/check auth=True usc=False exe=-
 GET /auth/locked_clients auth=True usc=True exe=-
@@ -111,7 +106,6 @@ PATCH /redfish/v1/Systems/0 auth=True usc=True exe=-
 POST /ap/close_all_mode auth=True usc=True exe=-
 POST /ap/enable auth=True usc=True exe=-
 POST /ap/open_last_mode auth=True usc=True exe=-
-POST /astrowarp/unbind auth=True usc=True exe=-
 POST /atx/click auth=True usc=True exe=-
 POST /atx/power auth=True usc=True exe=-
 POST /auth/login auth=False usc=False exe=-
