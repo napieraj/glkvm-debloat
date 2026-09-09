@@ -87,7 +87,6 @@ GET /tailscale/gui_status auth=True usc=True exe=/usr/sbin/gl_kvm_gui
 GET /tailscale/login_status auth=True usc=True exe=-
 GET /tailscale/login_url auth=True usc=True exe=-
 GET /tailscale/status auth=True usc=True exe=-
-GET /turn/get_turn auth=True usc=True exe=-
 GET /upgrade/beta/download auth=True usc=True exe=-
 GET /upgrade/compare auth=True usc=True exe=-
 GET /upgrade/download auth=True usc=True exe=-

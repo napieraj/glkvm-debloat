@@ -84,7 +84,6 @@ from .api.init import InitApi
 from .api.twofa import TwoFaApi
 from .api.astrowarp import AstrowarpApi
 from .api.fingerbot import FingerbotApi
-from .api.turn import TurnApi
 from .api.repeater import RepeaterApi
 from .api.modem import ModemApi
 from .api.ap import ApApi
@@ -173,7 +172,6 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
     __EV_REPEATER_STATE = "repeater"
     __EV_MODEMO_STATE = "modem"
     __EV_AP_STATE = "ap"
-    __EV_TURN_STATE = "turn"
     __EV_RECORDER_STATE = "recorder"
     __EV_SERIAL_STATE = "serial"
 
@@ -212,7 +210,6 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
         self.__switch = switch
         self.__fingerbot_api = FingerbotApi()
         self.__serial_api = SerialApi()
-        self.__turn_api = TurnApi()
         self.__repeater_api = RepeaterApi()
         self.__modem_api = ModemApi()
         self.__ap_api = ApApi()
@@ -235,7 +232,6 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
             NetbirdApi(),
             CloudflareApi(),
             ZerotierApi(),
-            self.__turn_api,
             SystemApi(
                 get_wss_callback=self._get_wss,
                 close_ws_callback=self._close_ws_by_session,
@@ -273,7 +269,6 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
             _Subsystem.make(self.__repeater_api, "Repeater", self.__EV_REPEATER_STATE),
             _Subsystem.make(self.__modem_api, "Modem", self.__EV_MODEMO_STATE),
             _Subsystem.make(self.__ap_api, "Ap", self.__EV_AP_STATE),
-            _Subsystem.make(self.__turn_api, "turn", self.__EV_TURN_STATE),
             _Subsystem.make(self.__recorder_api, "Recorder", self.__EV_RECORDER_STATE),
             _Subsystem.make(self.__serial_api, "Serial", self.__EV_SERIAL_STATE),
         ]
