@@ -334,6 +334,43 @@ So step 4 was a product decision — this project replaces TOTP with WebAuthn in
 - `htserver.py` — upstream 541, fork 569, **136 diff lines**. Unchanged by this work and still the cheapest rebase available.
 - `api/auth.py` — upstream 150, fork 290, **214 diff lines**. Now the LARGEST remaining divergence in the auth stack, having overtaken auth.py. It still holds `/same_check`, the query-token acceptance (R5.9) and the header-parsing call sites. Whatever is decided for auth.py, this file needs its own pass.
 
+### MEASURED: api/auth.py is contract-CLEAN, but a rebase still buys almost nothing
+
+Measured, no edits. Unlike `auth.py`, upstream's `api/auth.py` is rebasable in principle: it imports nothing plugin-related — no `Section`, no `get_auth_service_class`, no `BasePlugin` — and every `AuthManager` method it calls (`authorize`, `check`, `check_unix_credentials`, `is_auth_enabled`, `is_auth_required`, `login`, `logout`) already exists in the fork's ported manager. So the contract blocker that stopped `auth.py` does not apply here.
+
+The headline number overstates the divergence badly. 214 diff lines, but only **5 hunks**, and a large share is one cosmetic rename: upstream calls the parameter `auth`, the fork calls it `auth_manager`, in seven function signatures. The genuine fork-only surface is:
+
+| fork-only | disposition |
+|---|---|
+| `_check_exe_path` | **KEEP** — DECIDED, survives for beacon reuse |
+| `_is_local_network` + `GET /same_check` | **REBUILD** on the socket peer, do not delete |
+| `_check_query_token` | **DELETE** — this is R5.9 |
+| `_check_header_token` | keep; it is upstream's `_check_token` split in two, and the header half is legitimate |
+| User-Agent parsing / device+browser logging | keep, GL product feature |
+
+And upstream-only is almost nothing the fork wants: an `allow_redirects` allowlist in the `AuthApi` constructor, which nobody has asked for.
+
+**Recommendation: behaviour-port again, not a rebase.** Rebasing means taking upstream's 150 lines and re-applying roughly 50 lines of kept deltas to get back to where we are, in exchange for a redirect feature and a parameter rename. Porting the three real improvements in is four edits.
+
+#### R5.9 — the stream path does NOT need a query token, and upstream already shows why
+
+Three sites, re-derived: `api/auth.py:121` (`_check_query_token`), `api/auth.py:229` (logout), `server.py:521` (the WS handshake).
+
+The WS site looked like the hard one — a browser opening a WebSocket cannot set headers, so the token had to travel somehow. Upstream's answer needs no ticket at all: `set_request_auth_info(req, info, token="")` stashes the token on the request object during the auth check it is already doing (`htserver.py:282-287`), and `_get_request_auth_token(req)` reads it back when the session is built (`htserver.py:424`, `WsSession(wsr, _get_request_auth_token(req), kwargs)`). The server never needs the client to re-send in the URL, because it already authenticated that request and knows the token. The fork has none of this plumbing (`_REQUEST_AUTH_TOKEN` does not exist in its `htserver.py`) — porting it is about six lines and no contract.
+
+So: **delete all three sites.** No single-use stream ticket, no short TTL to manage. That also removes the reason `server.py:521` reads the query at all, and it composes with the WS-session lifecycle just ported, which needs the same token.
+
+#### Item 3 — header-derived authorisation: confirmed gone
+
+Six header reads remain in `api/auth.py` and none is header-derived identity:
+
+- `:69, :72` `X-KVMD-User` / `X-KVMD-Passwd` — a credential path, and upstream has it too (`api/auth.py:51, 54`)
+- `:93` `Authorization` — HTTP Basic, upstream has it
+- `:108, :228` `Token` — a credential
+- `:204` `User-Agent` — logging only
+
+The authorisation-from-a-header pattern the audit flagged is gone: `_get_client_ip` reads the socket peer, and its only consumer is `same_check`'s gate, which is what the rebuild moves. Any future header-derived authz is a regression.
+
 ### BLOCKER: the auth.py rebase is not isolatable — the 39-line measurement measured the wrong thing
 
 Found on starting Task 1, before any edit. The 39-line / 10-hunk figure for `auth.py` is correct **as a file comparison** and misleading **as a rebase estimate**, because upstream's `auth.py` cannot be dropped into this tree at all. Line 102 and 111 of upstream's `auth.py` construct the auth services like this:
