@@ -34,10 +34,6 @@ GET /recorder auth=True usc=True exe=-
 GET /redfish/v1 auth=False usc=True exe=-
 GET /redfish/v1/Systems auth=True usc=True exe=-
 GET /redfish/v1/Systems/0 auth=True usc=True exe=-
-GET /repeater/get_preset_ap_list auth=True usc=True exe=-
-GET /repeater/get_saved_ap_list auth=True usc=True exe=-
-GET /repeater/get_status auth=True usc=True exe=-
-GET /repeater/scan auth=True usc=True exe=-
 GET /rndis/status auth=True usc=True exe=-
 GET /same_check auth=False usc=False exe=-
 GET /serial/check auth=True usc=True exe=-
@@ -122,12 +118,6 @@ POST /msd/write_remote auth=True usc=True exe=-
 POST /recorder/start auth=True usc=True exe=-
 POST /recorder/stop auth=True usc=True exe=-
 POST /redfish/v1/Systems/0/Actions/ComputerSystem.Reset auth=True usc=True exe=-
-POST /repeater/add_preset_ap auth=True usc=True exe=-
-POST /repeater/connect auth=True usc=True exe=-
-POST /repeater/del_preset_ap auth=True usc=True exe=-
-POST /repeater/disconnect auth=True usc=True exe=-
-POST /repeater/enable auth=True usc=True exe=-
-POST /repeater/remove_saved_ap auth=True usc=True exe=-
 POST /rndis/start auth=True usc=True exe=-
 POST /rndis/stop auth=True usc=True exe=-
 POST /streamer/reset auth=True usc=True exe=-

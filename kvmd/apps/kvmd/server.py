@@ -82,7 +82,6 @@ from .api.auth import check_request_auth
 
 from .api.init import InitApi
 from .api.fingerbot import FingerbotApi
-from .api.repeater import RepeaterApi
 from .api.modem import ModemApi
 from .api.ap import ApApi
 from .api.wol import WolApi
@@ -162,7 +161,6 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
     __EV_SWITCH_STATE = "switch"
     __EV_RNDIS_STATE = "rndis"
     __EV_FINGERBOT_STATE = "fingerbot"
-    __EV_REPEATER_STATE = "repeater"
     __EV_MODEMO_STATE = "modem"
     __EV_AP_STATE = "ap"
     __EV_RECORDER_STATE = "recorder"
@@ -203,7 +201,6 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
         self.__switch = switch
         self.__fingerbot_api = FingerbotApi()
         self.__serial_api = SerialApi()
-        self.__repeater_api = RepeaterApi()
         self.__modem_api = ModemApi()
         self.__ap_api = ApApi()
         self.__recorder_api = RecorderApi(streamer, msd)
@@ -214,7 +211,6 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
             InitApi(init_manager),
             self.__fingerbot_api,
             WolApi(),
-            self.__repeater_api,
             self.__modem_api,
             self.__ap_api,
             SystemApi(
@@ -251,7 +247,6 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
             # _Subsystem.make(switch,       "Switch",       self.__EV_SWITCH_STATE),
             _Subsystem.make(rndis,        "RNDIS",        self.__EV_RNDIS_STATE),
             _Subsystem.make(self.__fingerbot_api, "Fingerbot", self.__EV_FINGERBOT_STATE),
-            _Subsystem.make(self.__repeater_api, "Repeater", self.__EV_REPEATER_STATE),
             _Subsystem.make(self.__modem_api, "Modem", self.__EV_MODEMO_STATE),
             _Subsystem.make(self.__ap_api, "Ap", self.__EV_AP_STATE),
             _Subsystem.make(self.__recorder_api, "Recorder", self.__EV_RECORDER_STATE),
