@@ -160,7 +160,7 @@ object.
 |---|---|---|
 | `see` | `mode: "full"\|"preview"\|"region"` (default `full`), `max_width: int >= 0` (default 640 for `preview`, 0 = native otherwise), `quality: 1..100` (default 80), `box: [l,t,r,b]` (required for `region`) | three parts: `{type:"image", mimeType:"image/jpeg", data:<b64>}`, `{type:"text", text:"<w>x<h>"}`, `{type:"text", text:"online=<bool> source=<w>x<h>"}` |
 | `read` | `box?: [l,t,r,b]` | one `text` part: the raw OCR text |
-| `wait_for` | `text: str` (non-empty), `timeout_s: 1..900` (default 60), `every_s: >= 1.0` (default 3), `stable_frames: 1..10` (default 2), `box?` | two `text` parts: last OCR text, then `{"found": true, "polls": n, "stable_frames": n}`; on timeout `isError` with the last text |
+| `wait_for` | `text: str` (non-empty), `timeout_s: 1..900` (default 60), `every_s: >= 1.0` (default 3), `stable_frames: 1..10` (default 2), `box?` | two `text` parts: last OCR text, then `{"found": true, "polls": n, "errors": n, "stable_frames": n}`; on timeout `isError` with the last text and, if any read failed, how many |
 | `type` | `text: str` (<= 4096 chars), `slow?: bool`, `keymap?: str` (a file name, e.g. `en-us`) | `{"len": <chars given>, "events": <key events emitted>}` |
 | `keys` | `chord: [str]` (1..6 DOM `KeyboardEvent.code` names) | `{}` |
 | `key` | `name: str`, `down?: bool` | `{}` |
@@ -364,6 +364,13 @@ Semantics:
   `"PVE1 LOGIN:"` and `"pve1\n  login:"`, but not `"log in:"` — the collapse
   normalises runs of whitespace, it does not remove it. It is a plain substring
   test, not a regex.
+- A read that *fails* is not a wait that fails. During a reboot ustreamer is
+  restarted and `ocr_service`'s socket disappears, so `OcrError` and an
+  offline streamer are the expected middle of a `wait_for`, not a reason to
+  end it. Failures are counted in `errors`, they reset any partial
+  `stable_frames` streak (an unread screen is not a matching screen), and
+  polling continues to the deadline. The timeout message names the failure
+  count and the last error.
 - `stable_frames` (default 2) consecutive matching reads are required before
   returning, so a half-rendered screen does not count. A non-matching read resets
   the counter to zero.
@@ -480,7 +487,7 @@ Found:
 ```json
 {"jsonrpc":"2.0","id":5,"result":{"isError":false,"content":[
   {"type":"text","text":"pve1 login:"},
-  {"type":"text","text":"{\"found\": true, \"polls\": 7, \"stable_frames\": 2}"}]}}
+  {"type":"text","text":"{\"errors\": 0, \"found\": true, \"polls\": 7, \"stable_frames\": 2}"}]}}
 ```
 
 Timed out:

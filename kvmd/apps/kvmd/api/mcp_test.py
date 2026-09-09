@@ -101,6 +101,8 @@ from .... import __version__  # noqa: E402
 
 from ..logreader import LogReader  # noqa: E402
 
+from ..ocr import OcrError  # noqa: E402
+
 from . import mcp as mcp_module  # noqa: E402
 from . import wol as wol_module  # noqa: E402
 
@@ -870,7 +872,8 @@ async def test_tool_wait_for_returns_after_stable_frames() -> None:
         # Poll 1 misses, polls 2 and 3 both match after normalisation.
         assert len(ocr.calls) == 3
         assert result["content"][0]["text"] == "login: root"
-        assert json.loads(result["content"][1]["text"]) == {"found": True, "polls": 3, "stable_frames": 2}
+        assert json.loads(result["content"][1]["text"]) == {
+            "found": True, "polls": 3, "errors": 0, "stable_frames": 2}
         # It slept between polls instead of spinning, and did not sleep after the hit.
         assert 1.5 < elapsed < 10
 
@@ -1344,3 +1347,126 @@ async def test_wait_for_timeout_never_logs_the_screen_or_the_needle(caplog: Any)
     assert needle not in caplog.text
     assert f"text len={len(needle)}" in lines[0]
     assert " ok=False" in lines[0]
+
+
+# =====
+class _FlakyOcr(_FakeOcr):
+    """An OCR that fails its first `fail_first` calls, then behaves normally.
+
+    Models the real thing during a reboot: ocr_service's socket disappears
+    while the target restarts, and ocr.py raises OcrError from
+    _rknn_recognize_params (ocr.py:136-139) until it is back.
+    """
+
+    def __init__(self, texts: Iterable[str], fail_first: int) -> None:
+        super().__init__(texts)
+        self.fail_first = fail_first
+        self.failures = 0
+
+    async def recognize(self, data: bytes, langs: list[str], left: int, top: int, right: int, bottom: int) -> str:
+        if self.failures < self.fail_first:
+            self.failures += 1
+            self.calls.append({"data": data, "langs": langs, "box": (left, top, right, bottom)})
+            raise OcrError("ocr_service socket unavailable (/run/kvmd/ocr.sock): [Errno 2]")
+        return (await super().recognize(data, langs, left, top, right, bottom))
+
+
+@pytest.mark.asyncio
+async def test_wait_for_survives_transient_ocr_failure() -> None:
+    # The tool's whole purpose is watching a machine through a reboot, and OCR
+    # is guaranteed to fail during one.  A transient failure must not end the
+    # wait; it must be counted and retried until the deadline.
+    ocr = _FlakyOcr(["login:"], fail_first=3)
+    async with _make_kvm(ocr=ocr) as kvm:
+        payload = await kvm.call_ok("wait_for", {
+            "text": "login:", "timeout_s": 10, "every_s": 1, "stable_frames": 1})
+    body = json.loads(payload["content"][1]["text"])
+    assert body["found"] is True
+    assert body["errors"] == 3
+    assert body["polls"] == 4          # three failures, then the match
+    assert ocr.failures == 3
+
+
+@pytest.mark.asyncio
+async def test_wait_for_failed_read_breaks_the_stable_frames_streak() -> None:
+    # An unread screen is not a matching screen: a failure between two matches
+    # must reset the streak, or stable_frames would certify a screen that was
+    # never seen twice in a row.
+    class _MatchFailMatch(_FakeOcr):
+        def __init__(self) -> None:
+            super().__init__(["login:"])
+            self.n = 0
+
+        async def recognize(self, data: bytes, langs: list[str],
+                            left: int, top: int, right: int, bottom: int) -> str:
+            self.n += 1
+            if self.n == 2:
+                raise OcrError("transient")
+            return "login:"
+
+    ocr = _MatchFailMatch()
+    async with _make_kvm(ocr=ocr) as kvm:
+        payload = await kvm.call_ok("wait_for", {
+            "text": "login:", "timeout_s": 20, "every_s": 1, "stable_frames": 2})
+    body = json.loads(payload["content"][1]["text"])
+    # Without the reset this would have returned at poll 3 (match, fail, match).
+    assert body["polls"] == 4
+    assert body["errors"] == 1
+
+
+@pytest.mark.asyncio
+async def test_wait_for_reports_read_failures_on_timeout(caplog: Any) -> None:
+    caplog.set_level(logging.INFO)
+
+    class _AlwaysFails(_FakeOcr):
+        async def recognize(self, data: bytes, langs: list[str],
+                            left: int, top: int, right: int, bottom: int) -> str:
+            raise OcrError("ocr_service socket unavailable")
+
+    async with _make_kvm(ocr=_AlwaysFails()) as kvm:
+        message = await kvm.call_err("wait_for", {"text": "login:", "timeout_s": 2, "every_s": 1})
+    # It timed out rather than surfacing the first OCR error as the failure,
+    # and it says why every read failed.
+    assert "Timed out" in message
+    assert "reads failed" in message
+    assert "OcrError" in message
+    lines = [record.getMessage() for record in caplog.records if record.getMessage().startswith("mcp ")]
+    assert len(lines) == 1
+    assert "errors=" in lines[0]
+
+
+def test_log_tail_survives_an_undecodable_byte() -> None:
+    # One bad byte in kvmd.log must not make kvm://log raise forever -- and the
+    # failure would be logged to that same file, so it would amplify itself.
+    with tempfile.NamedTemporaryFile(suffix=".log", delete=False) as file:
+        file.write(b"2026-01-01 00:00:00,000 - kvmd - INFO - before\n")
+        file.write(b"2026-01-01 00:00:01,000 - kvmd - INFO - bad \xff\xfe byte\n")
+        file.write(b"2026-01-01 00:00:02,000 - kvmd - INFO - after\n")
+        path = file.name
+    try:
+        text = mcp_module._log_tail(path, 100)  # pylint: disable=protected-access
+    finally:
+        os.unlink(path)
+    assert "before" in text
+    assert "after" in text
+    assert "byte" in text
+
+
+def test_redact_message_scrubs_url_credentials_it_did_not_match() -> None:
+    # The value substitution only catches the URL exactly as the caller sent
+    # it.  A validator that reformats before quoting -- here, lowercasing the
+    # host -- slips past it, so the userinfo backstop has to catch it.
+    args = {"url": "https://admin:hunter2@NAS.lan/iso/win.iso"}
+    msg = "Invalid URL: https://admin:hunter2@nas.lan/iso/win.iso"
+    out = mcp_module._redact_message(msg, args)  # pylint: disable=protected-access
+    assert "hunter2" not in out
+    assert "admin" not in out
+    assert "<redacted>@" in out
+    assert "nas.lan" in out          # the host itself is still useful in a log
+
+
+def test_redact_message_leaves_short_values_alone() -> None:
+    # Substituting a one-character value would rewrite every occurrence of that
+    # character and protect nothing.
+    out = mcp_module._redact_message("cannot type 'a' at offset a", {"text": "a"})  # pylint: disable=protected-access
+    assert out == "cannot type 'a' at offset a"

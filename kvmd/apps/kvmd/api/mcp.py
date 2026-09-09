@@ -236,6 +236,7 @@ import functools
 import io
 import json
 import os
+import re
 import stat
 import time
 import urllib.parse
@@ -457,6 +458,16 @@ def _normalize_text(text: str) -> str:
 
 _SECRET_ARGS = ("passwd", "password", "token", "auth_token")
 
+# Values shorter than this are not substituted into log messages: rewriting
+# every occurrence of a one- or two-character string garbles the message and
+# protects nothing.
+_REDACT_MIN_LEN = 4
+
+# scheme://userinfo@host -- the userinfo half is what must never be logged.
+# Matched independently of the arguments so a validator that reformats the URL
+# before quoting it cannot slip credentials past the value substitution.
+_URL_USERINFO_RE = re.compile(r"([a-zA-Z][a-zA-Z0-9+.-]*://)[^\s/@]+@")
+
 
 def _url_host(value: Any) -> str:
     try:
@@ -501,8 +512,17 @@ def _redact_message(msg: str, args: dict) -> str:
             replacement = "***"
         else:
             continue
-        msg = msg.replace(value, replacement)
-    return msg
+        # Substituting a very short value would garble unrelated text: a
+        # one-character `text` argument would rewrite every occurrence of that
+        # character in the message.  Short values carry no secret worth this.
+        if len(value) >= _REDACT_MIN_LEN:
+            msg = msg.replace(value, replacement)
+    # The substitution above only catches the value EXACTLY as the caller sent
+    # it.  A validator that strips, lowercases or re-encodes before embedding
+    # the offender in its message defeats it, and valid_url accepts userinfo,
+    # so scrub credentials out of any URL still left in the text regardless of
+    # which argument they came from.  This is the backstop, not the main path.
+    return _URL_USERINFO_RE.sub(r"\1<redacted>@", msg)
 
 
 def _log_tail(path: str, lines: int) -> str:
@@ -512,7 +532,11 @@ def _log_tail(path: str, lines: int) -> str:
     # line whose first field is not a timestamp instead of raising; see
     # McpApi.__read_log_tail for why that matters.
     tail: collections.deque = collections.deque(maxlen=lines)
-    with open(path, "r") as file:
+    # errors="replace": one undecodable byte anywhere in kvmd.log would
+    # otherwise make this resource raise forever, and the failure is logged to
+    # the same file, so it amplifies itself.  A mangled character is a far
+    # better outcome than a permanently unreadable log.
+    with open(path, "r", errors="replace") as file:
         for line in file:
             parts = line.split(" - ", 3)
             if len(parts) != 4:
@@ -981,18 +1005,36 @@ class McpApi:  # pylint: disable=too-many-instance-attributes
         hits = 0
         last = ""
         polls = 0
+        errors = 0
+        last_error = ""
         while True:
             # One OCR per poll, nothing held between polls: the snapshot (when
             # the tesseract branch even takes one) is dropped inside
             # __recognize, and only the normalized text survives the loop.
-            last = await self.__recognize(box)
+            #
+            # A failed read is not a failed wait.  This tool exists to watch a
+            # machine through a reboot, and during one ustreamer is restarted
+            # and ocr_service's socket goes away, so a transient OcrError or an
+            # offline streamer is the expected middle of the operation, not a
+            # reason to abandon it.  Count the failure, drop any partial match
+            # streak -- an unread screen is not a matching screen -- and keep
+            # polling to the deadline.  CancelledError derives from
+            # BaseException, so the disconnect watchdog still cuts this short.
+            try:
+                last = await self.__recognize(box)
+            except Exception as ex:  # pylint: disable=broad-except
+                errors += 1
+                last_error = f"{type(ex).__name__}: {ex}"
+                hits = 0
+            else:
+                hits = (hits + 1 if wanted in _normalize_text(last) else 0)
             polls += 1
-            hits = (hits + 1 if wanted in _normalize_text(last) else 0)
             if hits >= stable_frames:
                 return [
                     {"type": "text", "text": last},
                     {"type": "text", "text": json.dumps(
-                        {"found": True, "polls": polls, "stable_frames": stable_frames}, sort_keys=True)},
+                        {"found": True, "polls": polls, "errors": errors,
+                         "stable_frames": stable_frames}, sort_keys=True)},
                 ]
             remaining = deadline - time.monotonic()
             if remaining <= 0:
@@ -1001,14 +1043,17 @@ class McpApi:  # pylint: disable=too-many-instance-attributes
             # deadline by a whole interval.
             await asyncio.sleep(min(every_s, remaining))
         raise _ToolError(
-            f"Timed out after {timeout_s:g}s waiting for {needle!r}; last text: {last!r}",
+            f"Timed out after {timeout_s:g}s waiting for {needle!r}"
+            + (f" ({errors}/{polls} reads failed, last: {last_error})" if errors else "")
+            + f"; last text: {last!r}",
             # The caller gets the needle and the last screen back, but neither
             # may reach the log: `needle` IS the `text` argument the brief
             # (section 6) requires to be logged as len=N, and `last` is the
             # whole OCR'd console -- a recovery key or an echoed password may
             # be sitting in it.  The log is persisted to eMMC and served back
             # by this module's own kvm://log resource.
-            log_msg=f"Timed out after {timeout_s:g}s: text len={len(needle)} polls={polls} last_len={len(last)}",
+            log_msg=(f"Timed out after {timeout_s:g}s: text len={len(needle)} polls={polls}"
+                     f" errors={errors} last_len={len(last)}"),
         )
 
     async def __tool_type(self, args: dict) -> list[dict]:
