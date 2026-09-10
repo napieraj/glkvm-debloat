@@ -21,6 +21,47 @@
 > Step 0's own instruction — re-derive line numbers at HEAD rather than
 > trusting the ones written here — now applies to this document itself.
 
+> **FOUR BUILD HAZARDS. All four have bitten in this project, two of them twice,
+> and every one returns SILENTLY rather than failing loudly.**
+>
+> **1. The local flake8 gate does not catch dead code.** flake8 reports unused
+> IMPORTS (F401); it says nothing about an unused module-level function or class.
+> Those need `vulture`, which is in the tox envlist and is NOT installed in the
+> usual working container. Two consequences: removing dead code often leaves the
+> lint count unchanged, which is not evidence the removal was unnecessary; and a
+> deletion pass that orphans helpers passes every gate you can run by hand. The
+> lockout deletion left three `valid_rate_limit_*` validators in
+> `validators/auth.py` with zero callers, the count did not move, and they were
+> found later by someone reading the file. `make tox` is the only gate that would
+> have caught it.
+>
+> **2. Never put a non-zero-exiting linter before a command that must run, in an
+> `&&` chain.** `flake8` exits 1 whenever it reports findings, and this project
+> always has findings. So `git stash && flake8 > out && git stash pop` does NOT
+> pop — the chain short-circuits and the tree is left stashed, which looks exactly
+> like the edits were never made. All of Task 2 sat in `stash@{0}` while the tests
+> reported nonsense. Use `;`, or run the linter last.
+>
+> **3. A test suite in `testenv/tests/` has the repo root as its GRANDPARENT.**
+> `os.path.dirname(__file__)` is `testenv/tests`, so the root is `"..", ".."`. One
+> level short is not an error: `os.walk` on a directory that does not exist yields
+> nothing and `os.path.exists` returns False, so a grep-based assertion finds no
+> offenders and an absence assertion trivially holds. Five assertions in
+> `test_attestation.py` passed VACUOUSLY on that mistake, caught only because the
+> mutation pass reverted a fix and the matching test stayed green.
+> `test_routes.py` gets it right — copy from it. And distrust a path-based
+> assertion that passes on its first run until you have mutated what it checks.
+>
+> **4. `git checkout <sha> -- <path>` STAGES what it restores**, so the obvious
+> undo does not undo. A later `git checkout HEAD -- <path>` leaves files that are
+> not in HEAD (they are in the index now), and `git clean -fd` skips them because
+> staged paths are not untracked. A mutation experiment therefore leaves its
+> reverted files on disk and the next run fails on your own leftovers rather than
+> on the code — the attestation suite went red on exactly that, twice. Recovery,
+> in order and with `;` per hazard 2:
+>
+>     git reset HEAD -- . ; git checkout HEAD -- . ; git clean -fdx
+
 > **A PARTIAL TESTENV GIVES A FALSE GREEN. Read this before believing any
 > "the tests pass" claim, including your own.**
 >
@@ -160,6 +201,25 @@ Design 3b says 'success mints the same session token the password path mints tod
 Add the button row after the login button (web/login/index.pug:53-55 / web/login/index.html:104-109) and add #webauthn-button to the width rule at web/share/css/login/login.css:49-51. Bind it with tools.el.setOnClick (tools.js:154-162) next to main.js:42 — both buttons sit inside <form action='javascript:void(0)'> (index.html:50) and a <button> with no type defaults to submit, so a plain onclick reloads the page mid-ceremony. Three gotchas that will bite: (1) eslint enforces quote-props 'always' and double quotes (testenv/linters/eslintrc.js:34-41), so the options object must be written {"publicKey": {"challenge": ..., "rpId": "oskar.co", "userVerification": "required", "allowCredentials": []}} — copy-pasted WebAuthn snippets fail lint. (2) tools.httpRequest is XHR+callback with a 15 s default timeout (tools.js:51-79) while navigator.credentials.get typically waits 60 s for a tap; pass an explicit timeout or the XHR aborts mid-ceremony. (3) There are no base64url helpers anywhere in web/share/js — the only base64 code is tools.js:115-117 makeTextId, which is for DOM ids and replaces only the first '='; write real ArrayBuffer<->base64url helpers. Keep the username and password rows (index.pug:32-37): design 3.4 and section 8 both keep the password as break-glass, and the pre-enrolment device has a factory password and no credentials at all. 'No username field' means the ceremony needs no username, not that the fields are deleted.
 
 ### 13. Build kvmd/apps/beacon/ as a plain module with an init.d script, not a systemd unit
+
+> **HAZARD — enrolment must not re-open CRITICAL 3.** `GET /init/init` is deleted,
+> but `InitManager.init()` survives and now has NO caller in the tree. It is kept
+> precisely because enrolment needs that operation: it sets the admin password AND
+> rewrites root's entry in `/etc/shadow`. Wiring it back up is therefore
+> re-exposing the method behind a CRITICAL, and the shape of the exposure is the
+> whole question.
+>
+> Gate it behind the pinned-certificate provisioning path — an enrolment ticket
+> verified against the launcher pin — and never behind anything resembling the old
+> route: no `auth_required=False`, no "while the device reports itself
+> uninitialised", no password in a query parameter. The old design's failure was
+> not the operation; it was that an anonymous caller could invoke it while the
+> uninitialised flag failed open, which `init.py:51-77` still does.
+>
+> `testenv/tests/test_attestation.py` catches the careless version — it asserts the
+> unauthenticated surface is at most 4 routes, a ratchet that may only go down, so
+> an enrolment route with `auth_required=False` turns it red. That is a backstop,
+> not a design.
 
 **Files:** /home/user/glkvm-lean/kvmd/apps/beacon/__init__.py, /home/user/glkvm-lean/setup.py, /home/user/glkvm-lean/testenv/linters/vulture-wl.py, /home/user/glkvm-lean/testenv/linters/pylint.ini
 
