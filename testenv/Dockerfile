@@ -7,12 +7,22 @@ RUN echo 'Server = https://mirror.rackspace.com/archlinux/$repo/os/$arch' > /etc
 	&& pacman-key --init \
 	&& pacman-key --populate archlinux
 
+# openssl-1.1 was in the list below until 2026-09-10, and is why `make testenv`
+# could not build AT ALL: Arch has dropped the package, so pacman fails with
+# `target not found: openssl-1.1` before installing anything. That is the
+# second independent reason this suite had never run in CI -- the first was a
+# branch filter naming a branch that does not exist.
+#
+# Nothing in this container needs it. Every openssl call in the tree invokes
+# the plain `openssl` binary (api/system.py, the WebAuthn verifier). The only
+# other mention is PKGBUILD:104, which is the DEVICE package's dependency list
+# and is deliberately left alone: whether a unit needs 1.1 is a question about
+# the firmware image, not about this container.
 RUN pacman --noconfirm --ask=4 -Syy \
 	&& pacman --needed --noconfirm --ask=4 -S \
 		glibc \
 		pacman \
 		openssl \
-		openssl-1.1 \
 	&& pacman-db-upgrade \
 	&& pacman --noconfirm --ask=4 -Syu \
 	&& pacman --needed --noconfirm --ask=4 -S \
