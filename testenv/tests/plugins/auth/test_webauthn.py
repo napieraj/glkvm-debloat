@@ -654,3 +654,184 @@ def test_ok__sample_store_ships_valid() -> None:
     store = CredentialStore(os.path.abspath(sample))
     store.reload()
     assert store.get_all() == []
+
+
+# ===== mutations an audit found silent at 86 passed =====
+#
+# Each test below corresponds to one weakening that left the whole suite green
+# and was proven exploitable. They are grouped because they share a cause: the
+# existing negative cases each fail for a reason that is *stronger* than the
+# check under test, so none of them separates the check from a relaxed version
+# of itself. A flags case of 0x00 cannot tell `& 0x01` from `& 0x03`.
+
+
+@pytest.mark.asyncio
+async def test_fail__user_presence_is_bit_zero_alone(tmp_path: pathlib.Path) -> None:
+    """
+    UP must be tested as bit 0, not as "any low bit".
+
+    Widening the mask to `flags & 0x03` leaves the suite green because the two
+    existing flag cases are 0x00 and 0x04, and both are still falsy under the
+    wider mask. 0x02 is the discriminator: reserved bit set, UP CLEAR.
+
+    User presence is what makes an assertion evidence that a human touched the
+    key just now, so accepting one without it is accepting a replayed or
+    silently-generated assertion.
+    """
+
+    key = SoftKey(str(tmp_path))
+    plugin = _enrolled(tmp_path, key)
+    challenge = plugin.make_challenge()["publicKey"]["challenge"]
+    with pytest.raises(WebAuthnError):
+        await plugin.verify_assertion(**_assert_args(key, challenge, flags=0x02))
+
+
+@pytest.mark.asyncio
+async def test_fail__user_verification_is_bit_two_alone(tmp_path: pathlib.Path) -> None:
+    """
+    UV must be tested as bit 2, not as "any of bits 1-2".
+
+    Widening to `flags & 0x06` leaves the suite green. 0x03 is the
+    discriminator: UP set so the assertion gets that far, UV CLEAR, reserved
+    bit 0x02 set. Under the wider mask the configured second factor is
+    satisfied by a bit that means nothing.
+    """
+
+    key = SoftKey(str(tmp_path))
+    plugin = _enrolled(tmp_path, key, require_uv=True)
+    challenge = plugin.make_challenge()["publicKey"]["challenge"]
+    with pytest.raises(WebAuthnError):
+        await plugin.verify_assertion(**_assert_args(key, challenge, flags=0x03))
+
+    # And UV genuinely set still verifies, so a check refusing everything fails.
+    challenge = plugin.make_challenge()["publicKey"]["challenge"]
+    await plugin.verify_assertion(**_assert_args(key, challenge, flags=0x05 | 0x04))
+
+
+@pytest.mark.asyncio
+async def test_fail__rp_id_hash_is_compared_whole(tmp_path: pathlib.Path) -> None:
+    """
+    The rpIdHash comparison must cover all 32 bytes.
+
+    Truncating it to one byte leaves the suite green: the existing wrong-rp_id
+    case uses 'evil.co', whose digest differs in byte 0, so a one-byte
+    comparison rejects it correctly. 'evil436.co' is chosen because
+    sha256('evil436.co') and sha256('oskar.co') SHARE byte 0 (0x71) and diverge
+    after -- so it passes a truncated comparison and must not pass a whole one.
+
+    rpIdHash is what binds an assertion to this relying party. A comparison
+    that agrees on a prefix admits an assertion collected by a different site.
+    """
+
+    assert hashlib.sha256(b"evil436.co").digest()[0] == hashlib.sha256(_RP_ID.encode()).digest()[0]
+
+    key = SoftKey(str(tmp_path))
+    plugin = _enrolled(tmp_path, key)
+    challenge = plugin.make_challenge()["publicKey"]["challenge"]
+    with pytest.raises(WebAuthnError):
+        await plugin.verify_assertion(**_assert_args(key, challenge, rp_id="evil436.co"))
+
+
+@pytest.mark.asyncio
+async def test_fail__challenge_is_matched_whole_not_by_prefix(tmp_path: pathlib.Path) -> None:
+    """
+    The pending-challenge lookup must be equality, not a prefix test.
+
+    Relaxing `hmac.compare_digest(key, got)` to `key.startswith(got)` leaves
+    the suite green, and a single character then matches a 43-character pending
+    challenge. That defeats replay protection outright: an attacker who never
+    saw the challenge can satisfy the lookup, and the pop makes it look
+    legitimately consumed.
+
+    The existing unknown-challenge case uses a full-length wrong value, which a
+    prefix test rejects correctly.
+    """
+
+    key = SoftKey(str(tmp_path))
+    plugin = _enrolled(tmp_path, key)
+    challenge = plugin.make_challenge()["publicKey"]["challenge"]
+    assert len(challenge) > 1
+
+    with pytest.raises(WebAuthnError):
+        await plugin.verify_assertion(**_assert_args(key, challenge[:1]))
+
+    # The whole challenge still verifies, so a lookup matching nothing fails too.
+    await plugin.verify_assertion(**_assert_args(key, challenge))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("retcode", [-9, -11, 2, 127])
+async def test_fail__openssl_success_is_exit_zero_alone(
+    tmp_path: pathlib.Path,
+    monkeypatch: Any,
+    retcode: int,
+) -> None:
+    """
+    Only exit status 0 may be read as a valid signature.
+
+    Relaxing `retcode == 0` to `retcode != 1` leaves the suite green, because
+    every case the suite exercises returns 0 or 1. It is fail-open on the
+    actual signature gate: kvmd/tools.py returns the asyncio returncode
+    unchanged, and that is NEGATIVE when the child dies on a signal. So an
+    openssl killed by the OOM killer (-9) or crashing (-11) would be read as a
+    valid signature, as would any exit status openssl uses for a usage error.
+
+    Driven through run_command rather than through a real openssl, because the
+    point is the interpretation of the status, not openssl's behaviour.
+    """
+
+    async def fake_run_command(*_args: Any, **_kwargs: Any) -> tuple:
+        return (retcode, "", "killed")
+
+    monkeypatch.setattr("kvmd.plugins.auth.webauthn.run_command", fake_run_command)
+
+    key = SoftKey(str(tmp_path))
+    assert (await verify_es256_openssl(key.spki, b"x", key.sign(b"x"), _OPENSSL)) is False
+
+
+@pytest.mark.asyncio
+async def test_ok__openssl_exit_zero_is_still_accepted(tmp_path: pathlib.Path, monkeypatch: Any) -> None:
+    """The other half: a check refusing every status would pass the test above."""
+
+    async def fake_run_command(*_args: Any, **_kwargs: Any) -> tuple:
+        return (0, "", "")
+
+    monkeypatch.setattr("kvmd.plugins.auth.webauthn.run_command", fake_run_command)
+    key = SoftKey(str(tmp_path))
+    assert (await verify_es256_openssl(key.spki, b"x", key.sign(b"x"), _OPENSSL)) is True
+
+
+@pytest.mark.asyncio
+async def test_fail__a_failed_attempt_still_consumes_the_challenge(tmp_path: pathlib.Path) -> None:
+    """
+    The challenge is popped before anything else is checked, and that ordering
+    is load-bearing rather than incidental.
+
+    Moving the pop to after the credential lookup leaves the suite green,
+    because every existing failure case either supplies a good credential or
+    never retries. But it makes a challenge survive a failed attempt: an
+    attacker can burn unknown credential ids against one challenge
+    indefinitely, and a challenge that outlives a failure is no longer
+    single-use against a burst of concurrent replays.
+
+    Here the first attempt fails on an unknown credential; the SAME challenge
+    must then be dead even for a genuine credential.
+    """
+
+    key = SoftKey(str(tmp_path))
+    plugin = _enrolled(tmp_path, key)
+    challenge = plugin.make_challenge()["publicKey"]["challenge"]
+
+    args = _assert_args(key, challenge)
+    bad = dict(args)
+    bad["credential_id"] = b64u_encode(b"no-such-credential")
+    with pytest.raises(WebAuthnError):
+        await plugin.verify_assertion(**bad)
+
+    # The challenge was consumed by the failed attempt, so the good one fails too.
+    with pytest.raises(WebAuthnError):
+        await plugin.verify_assertion(**args)
+
+    # A fresh challenge still works, so this is not a plugin wedged shut.
+    fresh = plugin.make_challenge()["publicKey"]["challenge"]
+    await plugin.verify_assertion(**_assert_args(key, fresh))
