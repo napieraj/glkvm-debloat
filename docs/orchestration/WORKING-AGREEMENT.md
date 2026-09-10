@@ -97,3 +97,57 @@ So: when mutation-checking anything that writes to a pipe, socket or queue, race
 the operation against a deadline and fail on the deadline. Check the symmetric
 case too — a bound that is too STRICT writes nothing, so an undeadlined read on
 the other side hangs just as silently.
+
+## The mutation harness must disable bytecode — measured the hard way
+
+A mutation loop in this session silently ran **mutated code against a restored
+source file**, and the restore check said it was clean.
+
+The mechanism is the same one this project shipped a fix for hours earlier. The
+loop mutated `kvmd/pluginmgr/bundle.py`, ran pytest (which compiled the mutated
+source to `__pycache__/bundle.cpython-311.pyc`), then restored the original with
+`cp`. CPython decides whether a `.pyc` is stale by comparing the source's
+**mtime and size** against the values recorded in the `.pyc`. The final mutation
+in that loop was:
+
+```
+f.path == manifest.entry      ->      manifest.entry in f.path
+```
+
+Both are **exactly 24 characters**. The restored file therefore had the same
+size as the mutated one, and `cp` landed it inside the same mtime second, so the
+mutated `.pyc` was considered valid. Python went on executing
+`manifest.entry in f.path` from bytecode while the source on disk read `==`.
+
+Three separate things failed to notice:
+
+- `cmp -s snapshot file` reported "restored: yes". It compares **source**, and
+  cannot see bytecode.
+- `git status` was clean, for the same reason.
+- The test that should have caught it *did* eventually fail — but a full turn
+  later, on a run that looked like an unexplained regression on a clean tree
+  rather than like contamination.
+
+**Rules, and they are not optional in a project whose whole method is mutation
+testing:**
+
+1. Run every mutation pass with bytecode off — `python -B` **and**
+   `PYTHONDONTWRITEBYTECODE=1`; the flag alone does not cover subprocesses.
+2. Delete `__pycache__` between mutation and restore, not only at the end.
+3. Never treat a source-level `cmp` or a clean `git status` as proof that a
+   revert took effect. Re-run the baseline and require the expected count.
+4. Prefer a throwaway worktree, per the earlier hazard about backgrounded loops.
+
+**Everything claimed in this session was re-verified with bytecode disabled and
+a cleared cache.** Baseline `pluginmgr` 155, whole suite 1132 passed / 2 skipped.
+The hash ladder reddens at `[:2] [:8] [:32] [:63]`; `require_entry` reddens under
+`endswith`, `startswith` and `in`; dropping the import-precedence call reddens
+12, dropping `.so` reddens 5; the symlink guard and the entry anchor redden 1
+each. The conclusions stand — but they stood on a method that had a hole in it,
+and the hole was found by the code failing, not by the harness.
+
+There is a pointed lesson in which hazard this was. The refusal added today
+exists because a `.pyc` whose header matches its `.py` executes instead of the
+source. That is not only an attack on a plugin bundle; it is an attack on any
+process that edits a file and re-runs it — including the harness written to
+prove the refusal works.
