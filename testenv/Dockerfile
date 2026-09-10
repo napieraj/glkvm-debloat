@@ -7,6 +7,21 @@ RUN echo 'Server = https://mirror.rackspace.com/archlinux/$repo/os/$arch' > /etc
 	&& pacman-key --init \
 	&& pacman-key --populate archlinux
 
+# Two more names in this list had gone stale the same way, and CI found them
+# one build at a time:
+#
+#   libjpeg          -> renamed. Arch ships libjpeg-turbo, which PROVIDES
+#                       libjpeg; the bare name is not an installable target.
+#                       Needed to build ustreamer from source further down.
+#   python-periphery -> dropped from the Arch repos. It is genuinely used --
+#                       kvmd/plugins/ugpio/pwm.py imports `from periphery import
+#                       PWM` -- so it moves to testenv/requirements.txt and is
+#                       installed with pip rather than removed.
+#
+# PKGBUILD:56 also names python-periphery and is left alone, for the same
+# reason as openssl-1.1: that is the device's dependency list, not this
+# container's.
+#
 # openssl-1.1 was in the list below until 2026-09-10, and is why `make testenv`
 # could not build AT ALL: Arch has dropped the package, so pacman fails with
 # `target not found: openssl-1.1` before installing anything. That is the
@@ -39,7 +54,7 @@ RUN pacman --noconfirm --ask=4 -Syy \
 		m4 \
 		vim \
 		git \
-		libjpeg \
+		libjpeg-turbo \
 		libevent \
 		libutil-linux \
 		libbsd \
@@ -54,7 +69,6 @@ RUN pacman --noconfirm --ask=4 -Syy \
 		python-aiohttp \
 		python-aiofiles \
 		python-async-lru \
-		python-periphery \
 		python-passlib \
 		python-pyserial \
 		python-setproctitle \

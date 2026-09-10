@@ -5,3 +5,7 @@ pyrad
 types-PyYAML
 types-aiofiles
 luma.oled
+# Dropped from the Arch repos, so it can no longer come from pacman, but it is
+# a real dependency: kvmd/plugins/ugpio/pwm.py does `from periphery import PWM`
+# at module scope, and the linters in tox.ini all scan `kvmd` wholesale.
+python-periphery
