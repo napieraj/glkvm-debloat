@@ -84,3 +84,49 @@ def test_compare_versions_bytewise_fallback() -> None:
 def test_compare_versions_missing_segments() -> None:
     assert compare_versions("1.10", "1.10.0") < 0
     assert compare_versions("1.10.0", "1.10") > 0
+
+
+# ===== a gap an audit found: the check no mutation reddened =====
+def test_entry_pattern_is_anchored_at_both_ends() -> None:
+    """
+    Dropping the trailing `$` from _ENTRY_RE left the suite green.
+
+    _ENTRY_RE is what pins invariant 1 at the manifest level -- the loader
+    derives the on-disk location from `type` and `name`, and the entry is the
+    only free-text path the manifest carries. Unanchored, anything may follow
+    the '.py', so the declared entry no longer names a single module under a
+    known plugin directory.
+
+    Every other entry case in this file fails at the START of the pattern
+    (wrong prefix, wrong type, capital letter), which is why none of them
+    could tell an anchored pattern from an unanchored one.
+    """
+
+    def manifest_with(entry: str) -> dict:
+        return {
+            "entry": entry,
+            "firmware_compat": ">=1.10.0",
+            "model_compat": ">=rm1pe",
+            "name": "acme_relay",
+            "payload": {"sha256": "0" * 64, "size": 1},
+            "revision": 1,
+            "runtime": "device",
+            "signature": {"entries": [], "model": "hash-only"},
+            "type": "ugpio",
+        }
+
+    # The honest entry is accepted, so a pattern refusing everything fails too.
+    # validate() is the gate, not parse_manifest(): parsing only shapes the
+    # fields, and __validate_entry is reached from validate().
+    parse_manifest(canonical_json(manifest_with("plugins/ugpio/acme_relay.py"))).validate()
+
+    for trailing in [
+        "plugins/ugpio/acme_relay.py/../../../etc/passwd",
+        "plugins/ugpio/acme_relay.pyc",
+        "plugins/ugpio/acme_relay.py.bak",
+        "plugins/ugpio/acme_relay.py\x00.txt",
+        "plugins/ugpio/acme_relay.py ",
+    ]:
+        with pytest.raises(RefusalError) as caught:
+            parse_manifest(canonical_json(manifest_with(trailing))).validate()
+        assert code_of(caught.value) == "manifest.bad_entry"

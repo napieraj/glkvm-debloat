@@ -248,3 +248,48 @@ def test_the_import_precedence_this_refusal_rests_on() -> None:
     for suffix in shadowing:
         assert suffix.lower().endswith((".pyc", ".pyo", ".pyd", ".so")), \
             f"{suffix!r} is importable but not refused by _SHADOWING_SUFFIXES"
+
+
+# ===== gaps an audit found: checks no mutation reddened =====
+def test_require_entry_matches_the_whole_path_not_a_suffix() -> None:
+    """
+    Relaxing `f.path == manifest.entry` to `endswith` left the suite green.
+
+    Exploit it closes: a bundle whose only member is
+    'evil/plugins/ugpio/acme_relay.py' satisfies a manifest declaring
+    entry='plugins/ugpio/acme_relay.py'. The declared module is then not the
+    one on disk, and require_entry is the only thing asserting the bundle
+    carries what the manifest names.
+    """
+
+    manifest = parse_manifest(canonical_json(_REFERENCE_MANIFEST))
+    decoy = [TreeFile(path="evil/" + _REFERENCE_MANIFEST["entry"], data=b"x")]
+    with pytest.raises(RefusalError) as caught:
+        require_entry(decoy, manifest)
+    assert code_of(caught.value) == CODE_BUNDLE_ENTRY_MISSING
+
+    # And the honest case still passes, so a check that refused everything
+    # would not satisfy this test either.
+    require_entry([TreeFile(path=_REFERENCE_MANIFEST["entry"], data=b"x")], manifest)
+
+
+def test_readback_refuses_a_symlink_under_the_placement_root(tmp_path: pathlib.Path) -> None:
+    """
+    Dropping `os.path.islink(full) or` left the suite green.
+
+    Exploit it closes: a symlink planted under the root after placement --
+    a partial write, a hostile local edit -- is followed and its TARGET is
+    hashed and reported as a regular entry. readback_for() would then return
+    the contents of whatever the link points at, which is the one thing
+    readback exists to notice.
+    """
+
+    root = str(tmp_path / "store")
+    os.makedirs(os.path.join(root, "plugins", "ugpio"))
+    with open(os.path.join(root, "plugins", "ugpio", "acme_relay.py"), "wb") as file:
+        file.write(b"# real\n")
+    os.symlink("/etc/passwd", os.path.join(root, "plugins", "ugpio", "leak.py"))
+
+    with pytest.raises(RefusalError) as caught:
+        readback_for("a" * 64, root)
+    assert code_of(caught.value) == CODE_BUNDLE_UNSAFE_ENTRY
