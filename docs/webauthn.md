@@ -16,48 +16,72 @@ from `docs/lean-plan.md` / `docs/audit.md` rather than from a fresh read.
 
 ---
 
-## 1. The crypto premise, measured
+## 1. The crypto premise, re-measured
 
 The plan's step 11 and the design it came from assume ES256 verification has to
 go through an `openssl` subprocess because `cryptography` is not on the device.
-That assumption was checked before any verification code was written, because
-if it were wrong the design would collapse to about forty lines.
+That assumption was checked before any verification code was written, because if
+it were wrong the design would collapse to about forty lines.
 
-**It holds, and the decisive evidence is not the one the plan cites.**
+**Half of it was wrong, and the first CI run of this suite is what found it.**
+`cryptography` is installed in the test container and the fast path in
+`verify_es256` is live there. Four documents, a code docstring and a canary test
+said otherwise. The corrected table:
 
 | question | answer | evidence |
 |---|---|---|
-| `cryptography` in `PKGBUILD` depends? | **no** | `PKGBUILD:51-79` lists 30 `python-*` deps; `cryptography` is not among them. `PKGBUILD:84` and `:104` do list `openssl` and `openssl-1.1`. **[verified]** |
-| any Python file in this tree import it? | **no** | `grep -rn 'from cryptography\|import cryptography' --include=*.py .` → zero hits. **[verified]** |
-| in the test image? | **no** | `testenv/Dockerfile:37-64` pacman list has no `python-cryptography`; `testenv/requirements.txt` (the `-rrequirements.txt` every tox env pulls, `testenv/tox.ini:14,24,32,49`) is 7 lines and does not list it. **[verified]** |
-| importable in the runner? | **no** | `/tmp/claude-0/py312/bin/python -c 'import cryptography'` → `ModuleNotFoundError`. (The container's *system* `python3` has 41.0.7 — a sandbox artefact, not the test interpreter.) **[verified]** |
+| `cryptography` named in `PKGBUILD` depends? | **no** | `PKGBUILD:51-79` lists 30 `python-*` deps; `cryptography` is not among them. `PKGBUILD:84` and `:104` do list `openssl` and `openssl-1.1`. **[verified]** |
+| named in `testenv/Dockerfile` or `testenv/requirements.txt`? | **no** | The pacman list has no `python-cryptography`; `requirements.txt` does not list it. Still true — and still not the question that matters. **[verified]** |
+| any Python file in this tree import it? | **one** | `kvmd/plugins/auth/webauthn.py`, inside `verify_es256_cryptography`, guarded by `except ImportError`. **[verified]** |
+| **installed in the test container?** | **yes** | `pyghmi` — `testenv/requirements.txt:2`, inherited from upstream and used for IPMI — declares `cryptography>=2.1`, so `pip install -r requirements.txt` pulls it in transitively. Checked as code, not as prose: `importlib.metadata.requires("pyghmi")` → `['cryptography>=2.1', ...]`, asserted by `test_ok__cryptography_is_in_the_dependency_closure`. **[verified]** |
+| importable by the test interpreter? | **yes** | CI, 2026-09-10: `test_ok__cryptography_absent_here` FAILED with `assert True is None` — the canary written to detect exactly this. The reconstructed venv agrees (`cryptography 50.0.1`). **[verified in CI]** |
+| on the device? | **unknown, leaning yes** | `PKGBUILD:67` lists `python-pyghmi`, so the same transitive pull is likely there. Whether Arch's `python-pyghmi` declares `python-cryptography` could not be checked from here: `archlinux.org` gives `CONNECT tunnel failed, response 403` through this environment's proxy. **[unverified — needs a route to the Arch package database, or the image]** |
 | `openssl` on the device? | **yes, on GL's own evidence** | `kvmd/apps/kvmd/api/system.py:1744, 1753, 1903, 1934, 1943, 1979, 1987, 2024, 2033` — nine `run_command("openssl", ...)` call sites in GL.iNet's own runtime TLS code. If `openssl` were missing, the fork's certificate handling would be dead on the device. **[verified in-tree]** / **[assumed]** for the device itself |
 | `openssl` in the test image? | **yes** | `testenv/Dockerfile:14-15`. In this container: OpenSSL 3.0.13. **[verified]** |
 | anything in the tree already does ES256/ECDSA/COSE? | **almost nothing** | `grep -rniE '\bcbor\b\|\bcose\b\|webauthn\|\bfido\b\|ecdsa\|es256\|prime256v1\|secp256r1'` over `*.py` returns exactly one hit: `api/system.py:1744`, `openssl ecparam -name prime256v1` — key *generation*, not verification. No base64url helper exists anywhere in `kvmd/` or `web/share/js/`. **[verified]** |
 
-**The `PKGBUILD` argument is weak and should not be reused.** `docs/lean-plan.md`
-already says so at its "CLAIM: python-cryptography is NOT in the PKGBUILD"
-entry, and it is right: `PKGBUILD:45,142` sources `pikvm/kvmd` v4.16, `:95`
-depends on `raspberrypi-utils`, `:165` installs systemd units — it is upstream
-PiKVM's Arch package for a Raspberry Pi and it does not build the RM1PE image.
-It cannot even build *this* tree (`setup.py:67-108` omits four packages that
-exist on disk, one of which `kvmd/apps/kvmd/__init__.py:41` imports
-unconditionally).
+### 1.1 Why the original answer was wrong
 
-The argument that actually decides the question is different and stronger, and
-it is about CI rather than about the device: **a `cryptography` code path cannot
-be tested here at all.** The pytest interpreter does not have the module and
-neither the Dockerfile nor `testenv/requirements.txt` would install it. So even
-on a device that happened to ship `cryptography`, shipping it as the primary
-verification path would mean shipping the security-critical branch of an
-authentication mechanism with zero test coverage. `openssl` is the path that is
-both present on GL's own evidence and exercised by the suite.
+Every piece of evidence behind "absent" was a search for the *name*
+`cryptography` in a list someone writes by hand: `PKGBUILD` depends, the pacman
+list, `requirements.txt`, `grep` over `*.py`. All four searches were accurate.
+None of them can see a package that arrives because another package asked for it.
 
-**Decision.** `openssl dgst` subprocess is the primary and tested path.
-`cryptography` is used opportunistically if `import cryptography` succeeds at
-call time, because on a device that has it the subprocess is pure cost — but the
-module is written so that the openssl path is what the tests drive, and the
-`cryptography` branch is a strict fast-path with identical semantics.
+This is standing rule 11 one level down. The rule says a source search proves the
+absence of a *caller*, never of a *mechanism*; the same gap holds between a
+package list and an installed environment — a dependency list proves the absence
+of a *declaration*, never of the package. The only statements that settle it are
+`importlib.metadata.requires` on the things that ARE declared, or an import in
+the interpreter under test. Both are now asserted in the suite.
+
+The superseded claim is left standing in this document's history rather than
+quietly deleted, because the weaker form of it — "`cryptography` is not in the
+PKGBUILD, therefore not on the device" — is still sitting unresolved in the row
+above, for the same reason.
+
+### 1.2 The decision, amended
+
+`openssl dgst` remains the **tested fallback**, and it stays: a device that does
+not have `cryptography` must still authenticate, and `openssl` is the binary
+GL.iNet's own code already depends on nine times over.
+
+What changes is that the `cryptography` branch is no longer "opportunistic and
+untested". It is the branch CI actually takes, so:
+
+- All three of its `return False` exits are mutation-checked. Before this work
+  **none** of them reddened a test — the suite never called the function. The
+  `isinstance(key, ec.EllipticCurvePublicKey)` guard needed a test that asserts
+  on the *log*, because deleting the guard leaves the return value unchanged.
+- The `None`-means-absent contract is pinned by a test that hides the module in
+  `sys.modules`, since absence can no longer be measured directly.
+- `test_ok__assertion_verifies_through_openssl` forces the fast path to decline,
+  so the plugin → `verify_es256_openssl` wiring keeps integration coverage. Every
+  other plugin-level test in that file now travels through `cryptography`, which
+  is the coverage the original design claimed for `openssl`.
+
+The original argument — "a `cryptography` code path cannot be tested here at
+all" — was the load-bearing one, and it was false. It was an argument about CI,
+and CI has answered it.
 
 A third option — hand-rolled P-256 arithmetic in pure Python — was considered
 and rejected. It removes the subprocess and the dependency, and it is about
@@ -704,10 +728,14 @@ Found while re-deriving. Listed so they get fixed rather than re-discovered.
    (`grep -rn valid_rate_limit --include=*.py .` → three definition lines and
    nothing else). Not this workstream's file to change, but step 10 should have
    taken them and did not.
-7. **The plan's `openssl`-vs-`cryptography` conclusion is right for a reason it
+7. ~~**The plan's `openssl`-vs-`cryptography` conclusion is right for a reason it
    does not give.** It argues from the device; the stronger argument is that the
    test interpreter and the test image have no `cryptography`, so that branch
-   cannot be covered by CI regardless of what the device ships. §1.
+   cannot be covered by CI regardless of what the device ships.~~ **WITHDRAWN,
+   2026-09-10.** The "stronger argument" was false: `pyghmi` pulls `cryptography`
+   into the container transitively, the branch is the one CI takes, and it is now
+   covered. The plan's conclusion survives on the device argument it did give.
+   §1.1.
 8. **`docs/audit.md` section 3d should not be read as closed by this work.**
    WebAuthn removes the *routine* dependence on the password; it does not add
    rate limiting. `nginx limit_req` is still the open item.
@@ -751,16 +779,22 @@ Follows the fork's plugin contract (§3): explicit keyword parameters on
 - `softauthn.py` — a software authenticator built entirely on `openssl`
   subprocesses: real P-256 keys, real ES256 signatures, a tiny CBOR *encoder*
   for COSE keys, and builders for `authenticatorData` and `clientDataJSON`.
-  No network, no `cryptography`, and no key generation on any device. It is
-  test-only and nothing in `kvmd/` may import it.
-- `test_webauthn.py` — 84 tests. `_make_plugin()` goes through
+  No network, no use of `cryptography` (so the authenticator side is independent
+  of whether the verifier has it — not a claim that it is absent, see §1), and no
+  key generation on any device. It is test-only and nothing in `kvmd/` may import
+  it.
+- `test_webauthn.py` — 101 tests (84 at the time §13 was written; the ES256
+  verification block grew when §1 was corrected). `_make_plugin()` goes through
   `yamlconf.make_config` and `_unpack()`, so the option contract is exercised
   rather than bypassed, and one test asserts `cose_es256_to_spki` reproduces the
   DER that `openssl ec -pubout -outform DER` emitted for the same key, so the
   measured prefix constant cannot rot silently.
 
-**Mutation-checked**, because 84 tests passing on the first run is not evidence
-that any of them bite. Four one-line mutations were applied and reverted:
+**Mutation-checked**, because a suite passing on the first run is not evidence
+that any of it bites. Each mutation was applied to a throwaway copy of the tree,
+with that copy confirmed green BEFORE the mutation — the first attempt at the
+bottom five reported a red that turned out to be a `configs/` directory missing
+from the copy, which would have credited two surviving mutations as caught.
 
 | mutation | tests that failed |
 |---|---|
@@ -768,6 +802,17 @@ that any of them bite. Four one-line mutations were applied and reverted:
 | accept any signature | 1 |
 | read the pending challenge instead of popping it | 1 (`challenge_is_single_use`) |
 | skip the origin check | 3 |
+| `except InvalidSignature: return True` | 2 |
+| delete the `isinstance(key, ec.EllipticCurvePublicKey)` guard | 1 |
+| `except ImportError: return False` (instead of `None`) | 1 |
+| the catch-all handler's `return False` → `return True` | 1 |
+| `verify_es256`: return `True` rather than `fast` | 2 |
+
+The bottom five are the `cryptography` fast path. All five survived before §1 was
+corrected: the suite had never called that function, so every exit in it was
+unverified, and the two that do not change the return value (the `isinstance`
+guard, and the catch-all reached only by a malformed SPKI) needed tests written
+specifically to observe them.
 
 ### 13.3 `configs/kvmd/webauthn.json`
 

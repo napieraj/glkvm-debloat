@@ -137,6 +137,15 @@ testing:**
 3. Never treat a source-level `cmp` or a clean `git status` as proof that a
    revert took effect. Re-run the baseline and require the expected count.
 4. Prefer a throwaway worktree, per the earlier hazard about backgrounded loops.
+5. **Require the throwaway tree to be green BEFORE the mutation goes in, and
+   require the mutation's red to name a test you expected.** Added 2026-09-10,
+   after a harness that copied `kvmd/` and `testenv/` but not `configs/` ran one
+   test that failed in every single run: a verdict of "red, so the check is
+   covered" credited two surviving fail-open mutations as caught. A count of
+   failures is not a verdict; the *identity* of the failing test is. Both
+   survivors turned out to be mutations that do not change the mutated function's
+   return value at all, so they needed tests written to observe the log instead —
+   exactly the case the harness was there to find, and the one it hid.
 
 **Everything claimed in this session was re-verified with bytecode disabled and
 a cleared cache.** Baseline `pluginmgr` 155, whole suite 1132 passed / 2 skipped.

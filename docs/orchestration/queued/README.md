@@ -18,7 +18,15 @@ Both commits landed with the webauthn merge. All eight mutations were
 re-verified biting on the merged tree, so the patch has done its job and is
 deleted rather than left here to rot as a stale copy of committed history.
 
-The two measurement conditions still matter for anyone reproducing them:
-`cryptography` must be ABSENT (with it importable, `verify_es256` takes the
-fast path and the openssl gate is never exercised), and `__pycache__` must be
-cleared between mutation and restore. Both are in `WORKING-AGREEMENT.md`.
+The measurement conditions still matter for anyone reproducing them, but the
+first one was stated backwards. It said `cryptography` must be ABSENT. It cannot
+be: `pyghmi` (`testenv/requirements.txt:2`) pulls it in transitively, so the
+container has it and `verify_es256` takes the fast path there. What the openssl
+mutations need is the fast path PATCHED AWAY, not the package uninstalled —
+uninstalling it makes the reproduction diverge from CI. The tests that drive
+openssl now either call `verify_es256_openssl` directly or patch
+`verify_es256_cryptography` to return `None`. See `docs/webauthn.md` §1.1.
+
+Unchanged: `__pycache__` must be cleared between mutation and restore, and — added
+after this correction — the throwaway tree must be confirmed green BEFORE the
+mutation is applied. Both are in `WORKING-AGREEMENT.md`.

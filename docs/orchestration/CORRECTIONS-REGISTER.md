@@ -524,6 +524,39 @@ would have had occasion to notice.
 
 # Corrections to claims made in this session
 
+## I told the documentation agent `cryptography` was absent, and it pushed back with the same wrong reasoning
+
+The agent's brief listed `cryptography` in the working dependency set. I told it
+to take it out; it came back with a measured case for leaving it out, I accepted
+the reasoning, and it was written into `docs/testing.md` §4.1, the register, a
+code docstring, `softauthn.py`'s module docstring and `docs/webauthn.md` §1 —
+five places, one error. Neither of us was careless: `PKGBUILD`, the pacman list,
+`requirements.txt` and a `grep` over `*.py` were all checked and all came back
+empty, and all four were accurate.
+
+The error is that none of those four can see a package installed because another
+package asked for it. `pyghmi` was sitting in `requirements.txt:2` the whole time,
+and `cryptography==50.0.1` and `pyghmi==1.6.19` were eight lines apart in the
+freeze that `docs/testing.md` §3 prints. Agreement between two agents who ran the
+same kind of search is not a second measurement.
+
+Standing rule 11 already names this shape one level up — a source search proves
+the absence of a *caller*, never of a *mechanism*. The same gap holds between a
+package list and an installed environment. The general form, worth adding to how
+this is read: **an absence established by searching for a name is an absence of
+the name.** To claim the thing is absent you have to ask the thing that would
+know — here, `importlib.metadata.requires` on what IS declared, or an import in
+the interpreter under test.
+
+Also mine, found while fixing it: the first mutation run on the fast path
+reported two of five mutations as caught when they were not. The throwaway copy
+of the tree was missing `configs/`, so one unrelated test failed in every run and
+"grep for failed" read that as the mutation biting. Establish the copy is green
+BEFORE mutating it — the harness now does, and the two survivors turned out to be
+the two that needed tests written specially, because neither changes the
+function's return value.
+
+
 
 ## Corrected entry — WebAuthn
 
@@ -694,7 +727,28 @@ cd /home/user/kazbek && go test -count=1 ./internal/plugins/
 # Settled by disagreement or measurement — no action
 
 
-## `cryptography` should not be in the documented dependency set — a disagreement with the brief
+## ~~`cryptography` should not be in the documented dependency set~~ — OVERTURNED BY CI
+
+**This item was wrong, and so was the agreement that settled it.** It is kept
+under "settled" rather than moved, so that the next reader of this section sees
+that an item can be settled by measurement and still be wrong — the measurements
+below are all accurate; the inference from them is not.
+
+`cryptography` IS in the staged environment. `pyghmi` (`testenv/requirements.txt:2`)
+declares `cryptography>=2.1`, so pip installs it transitively in the container
+exactly as it did in this venv. Every search that backed "absent" searched for the
+NAME in a hand-written list, and a dependency list cannot see a transitive pull.
+The canary is what caught it, on the first CI run: `test_ok__cryptography_absent_here`
+FAILED with `assert True is None`.
+
+Acted on, 2026-09-10: the canary was replaced by its inverse, the live fast path's
+three fail-closed exits were mutation-checked (all three previously survived), a
+plugin-level test now forces the openssl path so it keeps integration coverage,
+and `docs/webauthn.md` §1 / `docs/testing.md` §4.1 were rewritten. See
+`docs/webauthn.md` §1.1 for the shape of the error.
+
+The original item, as settled:
+
 
 The brief for `docs/testing.md` lists `cryptography` among "the measured working
 dependency set". It is installed in this virtualenv (`50.0.1`), and recording it

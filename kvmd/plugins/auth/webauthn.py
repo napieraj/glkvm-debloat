@@ -200,10 +200,25 @@ def verify_es256_cryptography(spki: bytes, message: bytes, signature: bytes) -> 
     """The optional fast path. Returns None when the package is absent, which
     is the signal to fall through to openssl.
 
-    `cryptography` is NOT present on the device image, in testenv/Dockerfile or
-    in testenv/requirements.txt, so on this tree this function returns None and
-    openssl does the work. It is here because a device that does have the
-    package should not pay for a fork() per login. See docs/webauthn.md section 1.
+    This is the LIVE path in the test container, not a dormant optimisation. It
+    was documented and canary-tested here as dead -- "`cryptography` is not
+    present in testenv/Dockerfile or testenv/requirements.txt" -- on a grep for
+    the name. That grep was right and the conclusion was wrong: `pyghmi`
+    (testenv/requirements.txt:2) declares `cryptography>=2.1`, so pip pulls it in
+    transitively and every ES256 verification in CI comes through here. The
+    canary asserting None is what finally measured it.
+
+    Everything below is therefore reachable, and every exit fails CLOSED. Keep it
+    that way: all three `return False` exits have a one-token mutation to `return
+    True` that accepts forged assertions, and until this was measured NONE of the
+    three reddened a test. They now do -- see the "ES256 verification" block in
+    testenv/tests/plugins/auth/test_webauthn.py, which also pins the None
+    contract that verify_es256's two halves rest on.
+
+    PKGBUILD:67 lists `python-pyghmi` for the device too, so the device may well
+    take this path as well -- unverified, because that needs Arch's dependency
+    list for python-pyghmi and archlinux.org is not reachable from where this was
+    written. Treat both paths as production. See docs/webauthn.md section 1.
     """
     try:
         # pylint: disable=import-outside-toplevel
@@ -216,6 +231,11 @@ def verify_es256_cryptography(spki: bytes, message: bytes, signature: bytes) -> 
     try:
         key = load_der_public_key(spki)
         if not isinstance(key, ec.EllipticCurvePublicKey):
+            # Not mypy narrowing. Deleting this does not change the return value
+            # -- a non-EC key reaches key.verify() with an argument too many,
+            # raises, and the handler below returns the same False -- so the test
+            # covering it keys on the log staying silent. It is the difference
+            # between refusing a wrong key type and erroring on the signature gate.
             return False
         key.verify(signature, message, ec.ECDSA(hashes.SHA256()))
         return True

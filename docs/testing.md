@@ -126,42 +126,71 @@ locally built `ustreamer`. The reconstructed virtualenv is pip-only. The two
 differ in both directions, and at least one difference changes which code path a
 test exercises.
 
-### 4.1 `cryptography` is present here and absent there
+### 4.1 `cryptography` is present in BOTH — this section had it backwards
 
-`testenv/Dockerfile` does not install `python-cryptography` and
-`testenv/requirements.txt` does not list it. **[verified here]** The
-reconstructed venv has `cryptography 50.0.1`.
+**Superseded 2026-09-10 by the first CI run of this suite.** The original text is
+below the correction, because the reasoning error in it is the interesting part.
 
-On `claude/glkvm-webauthn` there is a canary for exactly this:
-`test_ok__cryptography_absent_here`, at `testenv/tests/plugins/auth/test_webauthn.py:210`,
-asserts the module is not importable. Run in this virtualenv it **fails**, and
-the whole file goes **83 passed, 1 failed** against the 84 recorded in the
-corrections register. **[verified here]**
+`cryptography` is installed in the container. Nothing names it: not the
+`python-*` pacman list, not `testenv/requirements.txt`. It arrives because
+`pyghmi` (`testenv/requirements.txt:2`) declares `cryptography>=2.1`, so
+`pip install -r requirements.txt` installs it transitively — in the container and
+in the reconstructed venv alike. **[verified: `importlib.metadata.requires("pyghmi")`
+→ `['cryptography>=2.1', 'python-dateutil>=2.8.1']`; and CI, where the canary
+below failed]**
 
-The canary is not pedantry. `verify_es256` at `webauthn.py:274` tries
-`verify_es256_cryptography` first and only falls through to
-`verify_es256_openssl` when the fast path declines:
+The evidence was already in this document. The freeze in §3 lists
+`cryptography==50.0.1` *and* `pyghmi==1.6.19`, eight lines apart. The venv was
+built from `requirements.txt` by pip, so every line in that freeze that nothing
+names is there by transitive resolution — which is the same mechanism that puts
+it in the container.
 
-```python
-fast = verify_es256_cryptography(spki, message, signature)
-if fast is not None:
-    return fast
-return (await verify_es256_openssl(spki, message, signature, openssl_cmd))
-```
+So this is not a divergence between the venv and the container at all. It was
+recorded as one because four independent searches for the *name* came back empty
+and were read as the package being absent. A dependency list proves the absence
+of a declaration; only the interpreter proves the absence of the module. See
+`docs/webauthn.md` §1.1.
 
-So with `cryptography` installed, **every ES256 verification in that suite takes
-the fast path**, and the openssl path — the one `docs/webauthn.md` calls the
-primary and tested path, and the one a device without `cryptography` actually
-takes — is exercised only where a test monkeypatches the fast path away. The 83
-that still pass do so because both paths give the same answer, which is why the
-canary is the only test that can tell.
+**What actually followed from it** is still true and is the part worth keeping:
+with `cryptography` importable, every ES256 verification in that suite takes the
+fast path, and `verify_es256_openssl` — which `docs/webauthn.md` called the
+primary and *tested* path — is reached only where a test patches the fast path
+away. That was a real coverage hole in the live branch, and it is now closed:
+`webauthn.py:199` documents the reversal, the fast path's three fail-closed exits
+are mutation-checked, and `test_ok__assertion_verifies_through_openssl` forces the
+openssl path at plugin level so its wiring keeps integration coverage.
 
-**Recommendation, and a disagreement with the brief for this document.**
-`cryptography` should *not* be listed as part of the working dependency set. It
-is not needed — the suite passes without it, and the tree imports it only
-opportunistically — and installing it silently swaps the code path under an
-authentication test. If a future session needs it for something else, install it
-in a separate virtualenv rather than this one.
+The **recommendation has been withdrawn.** It said `cryptography` should be kept
+out of the working dependency set because "the suite passes without it" and
+installing it "silently swaps the code path under an authentication test". Both
+halves are wrong in the same way: it cannot be kept out while `pyghmi` is in, and
+the swap was not a local artefact to avoid — it is what CI does. Uninstalling it
+from the venv made the reconstruction *diverge* from the container while appearing
+to fix a divergence.
+
+<details>
+<summary>Original §4.1, superseded</summary>
+
+> `testenv/Dockerfile` does not install `python-cryptography` and
+> `testenv/requirements.txt` does not list it. **[verified here]** The
+> reconstructed venv has `cryptography 50.0.1`.
+>
+> On `claude/glkvm-webauthn` there is a canary for exactly this:
+> `test_ok__cryptography_absent_here` asserts the module is not importable. Run in
+> this virtualenv it **fails**, and the whole file goes **83 passed, 1 failed**
+> against the 84 recorded in the corrections register. **[verified here]**
+>
+> **Recommendation.** `cryptography` should *not* be listed as part of the working
+> dependency set. It is not needed — the suite passes without it, and the tree
+> imports it only opportunistically — and installing it silently swaps the code
+> path under an authentication test.
+
+The canary did its job: it was the only assertion in the tree capable of
+detecting this, and it is what detected it. It has been replaced by its inverse,
+`test_ok__cryptography_is_in_the_dependency_closure`, which checks the
+`pyghmi` declaration as code so the next change to the closure is loud.
+
+</details>
 
 ### 4.2 `evdev` is imported unconditionally and is in no image package list
 

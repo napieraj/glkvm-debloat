@@ -23,11 +23,17 @@
 """A software authenticator, for tests ONLY.
 
 It exists so the WebAuthn plugin can be exercised against real ES256
-signatures with no network, no `cryptography` (which is absent from the test
-interpreter, testenv/Dockerfile and testenv/requirements.txt) and no key
-material on any device. Everything here shells out to `openssl`, which
-testenv/Dockerfile:14-15 provides and which GL.iNet's own runtime code already
-depends on (api/system.py:1744 and eight more).
+signatures with no network and no key material on any device. Everything here
+shells out to `openssl`, which testenv/Dockerfile:14-15 provides and which
+GL.iNet's own runtime code already depends on (api/system.py:1744 and eight
+more).
+
+This module deliberately does not use `cryptography`, so the authenticator side
+stays independent of whether the verifier side has it -- but do NOT read that as
+`cryptography` being absent. It is in the container: `pyghmi`
+(testenv/requirements.txt:2) declares `cryptography>=2.1`, so pip installs it
+transitively and the fast path in verify_es256 is live. That was asserted the
+other way here for weeks and CI falsified it; see docs/webauthn.md section 1.
 
 Nothing in this module may be imported by kvmd. Devices do not generate
 credentials; see docs/webauthn.md section 5.
@@ -151,6 +157,27 @@ class SoftKey:
         }
         entry.update(extra)
         return entry
+
+
+def make_non_ec_spki(work_dir: str) -> bytes:
+    """A well-formed SPKI for a key that is not on a NIST curve.
+
+    Exists only for the `isinstance(key, ec.EllipticCurvePublicKey)` guard in
+    verify_es256_cryptography, which nothing else in this suite can reach: every
+    other key here is a SoftKey, and a malformed blob raises inside
+    load_der_public_key instead of returning a non-EC key object.
+    """
+
+    key_path = os.path.join(work_dir, "ed25519.key.pem")
+    subprocess.run(
+        [OPENSSL, "genpkey", "-algorithm", "ED25519", "-out", key_path],
+        check=True, capture_output=True,
+    )
+    proc = subprocess.run(
+        [OPENSSL, "pkey", "-in", key_path, "-pubout", "-outform", "DER"],
+        check=True, capture_output=True,
+    )
+    return proc.stdout
 
 
 def write_store(path: str, entries: list, version: Any=1) -> None:

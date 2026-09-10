@@ -21,10 +21,14 @@
 
 
 import os
+import sys
 import json
 import time
+import logging
 import hashlib
 import pathlib
+import importlib.util
+import importlib.metadata
 
 from typing import Any
 
@@ -207,12 +211,130 @@ async def test_ok__es256_openssl_missing_binary(tmp_path: pathlib.Path) -> None:
     assert not (await verify_es256_openssl(key.spki, b"x", signature, ["/nonexistent/openssl"]))
 
 
-def test_ok__cryptography_absent_here(tmp_path: pathlib.Path) -> None:
-    # The measured premise of the design: `cryptography` is not importable by the
-    # test interpreter, so the fast path declines and openssl does the work. If
-    # this ever starts returning a bool, the fast path has become live and needs
-    # its own coverage -- see docs/webauthn.md section 1.
+def test_ok__cryptography_is_in_the_dependency_closure() -> None:
+    """The inverse of the canary this replaced, and the reason the tests below
+    are not skipped.
+
+    `test_ok__cryptography_absent_here` asserted that the fast path declines here,
+    on the grep-backed premise that nothing installs `cryptography`. CI falsified
+    it the first time it ran: `pyghmi` (testenv/requirements.txt:2) declares
+    `cryptography>=2.1`, so pip installs it transitively and the fast path is
+    live. Nothing NAMES it, which is why four documents asserted its absence.
+
+    This assertion is what stops the three skipif-gated tests below from going
+    quietly vacuous if the closure changes: if `cryptography` ever does leave,
+    this reddens and names the cause, instead of the fast-path coverage silently
+    evaporating.
+    """
+
+    assert importlib.util.find_spec("cryptography") is not None, (
+        "`cryptography` left the dependency closure. The fast path in"
+        " verify_es256_cryptography is now dead in CI and the tests below are"
+        " skipping -- see docs/webauthn.md section 1 before deleting this."
+    )
+
+    # The provenance, checked rather than asserted in a comment. Nothing names
+    # `cryptography` anywhere in this repo, so this one declaration is the whole
+    # reason it is installed; if it goes, the package goes with it. Relax this to
+    # the find_spec above if `cryptography` is ever named directly.
+    declared = [req for req in (importlib.metadata.requires("pyghmi") or []) if req.startswith("cryptography")]
+    assert declared, "pyghmi no longer declares cryptography -- re-derive how it reaches the container"
+
+
+_HAS_CRYPTOGRAPHY = (importlib.util.find_spec("cryptography") is not None)
+_needs_cryptography = pytest.mark.skipif(not _HAS_CRYPTOGRAPHY, reason="cryptography is not installed")
+
+
+@_needs_cryptography
+def test_ok__es256_cryptography_verifies(tmp_path: pathlib.Path) -> None:
+    """The live path's happy case and its two rejections.
+
+    The False for a wrong message is what covers `except InvalidSignature:
+    return False`. That handler sits on the actual signature gate, so the
+    mutation to `return True` accepts every forged assertion; with no test
+    reaching this function at all, it reddened nothing.
+    """
+
     key = SoftKey(str(tmp_path))
+    signature = key.sign(b"hello world")
+    assert verify_es256_cryptography(key.spki, b"hello world", signature) is True
+    assert verify_es256_cryptography(key.spki, b"hello worlX", signature) is False
+    assert verify_es256_cryptography(key.spki, b"hello world", b"garbage") is False
+
+
+@_needs_cryptography
+def test_ok__es256_cryptography_refuses_a_non_ec_key(
+    tmp_path: pathlib.Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """`isinstance(key, ec.EllipticCurvePublicKey)` is load-bearing, not a type
+    narrowing for mypy.
+
+    Measured, not assumed: deleting that guard leaves the RETURN VALUE unchanged.
+    An Ed25519 SPKI loads fine, so the guardless code reaches
+    `key.verify(signature, message, ec.ECDSA(...))` on an object whose verify()
+    takes two arguments, raises TypeError, and the broad handler below turns that
+    into the same False. An outcome-only assertion here is green either way -- the
+    first version of this test was, and said so in its own docstring.
+
+    What does change is HOW it refuses: with the guard, a wrong key type is a
+    clean refusal; without it, an internal error on the signature gate. So the
+    assertion is on the log being silent, which is the only observable that
+    separates the two.
+    """
+
+    spki = softauthn.make_non_ec_spki(str(tmp_path))
+    with caplog.at_level(logging.ERROR):
+        assert verify_es256_cryptography(spki, b"x", b"whatever") is False
+    assert "errored" not in caplog.text, "a wrong key type must be refused by the guard, not by raising"
+
+    # And it really was the guard that had the chance to refuse: the same blob
+    # through the real loader yields a key object, i.e. load_der_public_key did
+    # not raise first.
+    from cryptography.hazmat.primitives.serialization import load_der_public_key  # pylint: disable=import-outside-toplevel
+    from cryptography.hazmat.primitives.asymmetric import ec  # pylint: disable=import-outside-toplevel
+    assert not isinstance(load_der_public_key(spki), ec.EllipticCurvePublicKey)
+
+
+@_needs_cryptography
+def test_ok__es256_cryptography_fails_closed_on_error(
+    tmp_path: pathlib.Path,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """The catch-all handler's `return False` is the last fail-closed step, and
+    nothing reached it.
+
+    Every signature case above lands in the InvalidSignature handler instead --
+    including a garbage signature, which `cryptography` reports as invalid rather
+    than as a decode error -- and no other test feeds this function an input that
+    makes load_der_public_key raise. So `except Exception: return True` was a
+    one-token change to accept every verification that errors, with the whole
+    suite still green.
+    """
+
+    key = SoftKey(str(tmp_path))
+    with caplog.at_level(logging.ERROR):
+        assert verify_es256_cryptography(b"not a DER SPKI", b"x", key.sign(b"x")) is False
+    assert "cryptography verification errored" in caplog.text
+
+
+def test_ok__es256_cryptography_declines_when_absent(tmp_path: pathlib.Path, monkeypatch: Any) -> None:
+    """The None contract, which is the whole reason verify_es256 has two halves.
+
+    Simulated rather than measured, now that the package is present. The
+    assertion doubles as proof the simulation worked: with the patch ineffective
+    this returns True, not None.
+    """
+
+    key = SoftKey(str(tmp_path))
+    for name in [
+        "cryptography",
+        "cryptography.exceptions",
+        "cryptography.hazmat.primitives.hashes",
+        "cryptography.hazmat.primitives.asymmetric.ec",
+        "cryptography.hazmat.primitives.serialization",
+    ]:
+        monkeypatch.setitem(sys.modules, name, None)
     assert verify_es256_cryptography(key.spki, b"x", key.sign(b"x")) is None
 
 
@@ -488,6 +610,33 @@ async def test_ok__assertion_verifies(tmp_path: pathlib.Path) -> None:
     challenge = plugin.make_challenge("login")["publicKey"]["challenge"]
     (user, purpose) = await plugin.verify_assertion(**_assert_args(key, challenge))
     assert (user, purpose) == ("admin", "login")
+
+
+@pytest.mark.asyncio
+async def test_ok__assertion_verifies_through_openssl(tmp_path: pathlib.Path, monkeypatch: Any) -> None:
+    """The same assertion, with the fast path forced to decline.
+
+    Needed because `cryptography` turned out to be installed: verify_es256 takes
+    the fast path, so every OTHER plugin-level test here now exercises the
+    cryptography verifier and none of them reach openssl. verify_es256_openssl is
+    unit-tested directly, but the wiring between the plugin and it -- SPKI
+    reassembled from COSE, PEM conversion, the signed blob -- was covered only by
+    tests that no longer travel that way. This restores it for the branch a
+    device without the package takes.
+    """
+
+    monkeypatch.setattr("kvmd.plugins.auth.webauthn.verify_es256_cryptography", (lambda *_: None))
+
+    key = SoftKey(str(tmp_path))
+    plugin = _enrolled(tmp_path, key)
+    challenge = plugin.make_challenge("login")["publicKey"]["challenge"]
+    (user, purpose) = await plugin.verify_assertion(**_assert_args(key, challenge))
+    assert (user, purpose) == ("admin", "login")
+
+    # And it is really openssl deciding, not a path that accepts anything.
+    challenge = plugin.make_challenge("login")["publicKey"]["challenge"]
+    with pytest.raises(WebAuthnError):
+        await plugin.verify_assertion(**_assert_args(key, challenge, tamper=True))
 
 
 @pytest.mark.asyncio
