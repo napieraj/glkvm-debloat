@@ -21,6 +21,23 @@
 > Step 0's own instruction — re-derive line numbers at HEAD rather than
 > trusting the ones written here — now applies to this document itself.
 
+> **THIS TREE IS A DAEMON INSIDE A FIRMWARE IMAGE NOBODY HERE HAS.** `kvmd` is
+> one process in a GL.iNet buildroot system. The init scripts, the updater
+> binaries, the bootloader and its environment, and the tunnel client are all
+> outside both repositories and cannot be read, changed or removed from here.
+>
+> So **"not in the repo" never means "not on the device"**, and a search of this
+> tree can only ever prove the absence of a CALLER, never of a mechanism. Three
+> findings in two sessions turned on exactly this: `rtty` (GL ships it as
+> `S99rtty`), the updater (`updateEngine` and `swupdate_start.sh`, invoked here
+> by name and shipped by neither tree), and the flash trigger (`--misc=update`
+> writes a partition the BOOTLOADER reads). Each time the repo-scoped conclusion
+> was "orphaned, therefore inert", and each time it was wrong.
+>
+> When a question is about device state or device behaviour it goes to
+> `test_on_device_residuals` in the attestation suite — not into this plan, and
+> not into a grep.
+
 > **SIX BUILD HAZARDS. All six have bitten in this project, three of them twice,
 > and every one returns SILENTLY rather than failing loudly.**
 >
@@ -107,12 +124,20 @@
 >
 > So: an incomplete environment does not merely hide tests, it *misclassifies*
 > them, and it does so silently. Any claim that the suite passes must be made
-> against the COMPLETE testenv and on BOTH interpreters. THIS HAS NOT HAPPENED:
-> every count in this document was produced on 3.11 only, and the 3.12 half of
-> the instruction was reported as done because tox.ini declares it. Treat all of
-> them as provisional until one `make tox` on a Docker host settles it —
-> `tarfile`, dict ordering and stdlib hash details have all moved across recent
-> minors. tox pins
+> against the COMPLETE testenv and on BOTH interpreters. **Now actually done,
+> and they agree exactly: 745 passed / 2 skipped on 3.12.3, and 745 passed / 2
+> skipped on 3.11.15** — same tree, same staged environment. The substitution
+> worry (`tarfile`, dict ordering, stdlib hashes) is closed for this branch. The
+> label correction in hazard 6 stands on its own: earlier counts really were
+> reported against the wrong interpreter, they were simply not wrong numbers.
+>
+> Staging 3.12 took six packages beyond the 3.11 set, each presenting as a
+> collection ERROR rather than a skip (hazard 6 again): aiofiles, evdev, pillow,
+> python-xlib, zstandard, async_lru — on top of pytest, pytest-mock,
+> pytest-aiohttp, pytest-asyncio, python-pam, aiohttp-basicauth, passlib,
+> pyyaml, dbus-next, pyserial, setproctitle, psutil, netifaces and pygments.
+> `systemd-python` does not build here; neither interpreter has it and nothing
+> in the suite needs it. tox pins
 > basepython = python3.12 (testenv/tox.ini:6) while a bare `python3` on a
 > workstation is often 3.11, and the two disagree about which optional test
 > dependencies are installed.
@@ -256,13 +281,13 @@ Add the button row after the login button (web/login/index.pug:53-55 / web/login
 > staged image survives a rootfs-only reflash, which puts it in the same
 > device-verifiable class as the residual `authorized_keys` and cron entries.
 >
-> NOT ESTABLISHED, and it needs the OS image rather than either repo: whether
-> anything picks up `/userdata/update.img` WITHOUT an explicit trigger — a
-> boot-time scan, a recovery path, or U-Boot's own boot script. This container's
-> network policy blocks `fw.gl-inet.com` (403 at CONNECT), so the firmware could
-> not be fetched and unpacked here. Do it where an image is reachable, and grep
-> `/etc/init.d/S*`, the recovery scripts and the U-Boot environment for that
-> path before treating the staging area as inert.
+> NOT ESTABLISHED: whether anything consumes `/userdata/update.img` WITHOUT an
+> explicit trigger. That question is DEVICE-verifiable, not source-verifiable,
+> so it does not belong here — it is item 7 and the lettered procedure in
+> `test_on_device_residuals`, with everything else that needs a unit on the
+> bench. Do not attempt it from a source checkout: this container's network
+> policy blocks `fw.gl-inet.com` at CONNECT anyway, and an image is the wrong
+> tool for it — a unit is.
 >
 > If enrolment needs to stage an image it BUILDS a pinned-signature path; it
 > does not inherit this one. Ratcheted by

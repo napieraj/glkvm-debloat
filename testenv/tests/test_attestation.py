@@ -320,6 +320,32 @@ def test_on_device_residuals() -> None:
          the password must be CHANGED.
       5. /etc/shadow -- root's entry is what the operator set, not what an
          unauthenticated /init/init call left behind.
+      6. /userdata/update.img -- ABSENT. POST /upgrade/upload is deleted, but a
+         staged image written before the strip survives, because /userdata is a
+         persistent partition and a rootfs-only flash does not touch it.
+      7. The misc partition -- CLEAN. updateEngine was invoked with
+         --misc=update, which writes the Rockchip misc partition. That is a
+         BOOTLOADER-facing flag, not a userspace one, so the trigger for
+         applying a staged image lives below the OS. Post-flash readback that
+         hashes the rootfs attests neither 6 nor 7: both are outside it.
+
+    Read this before treating 6 and 7 as cleanup rather than persistence. The
+    pair -- a staged image on a partition that survives, plus a boot flag below
+    the rootfs -- is an implant that a rootfs-only reflash does not clear, and
+    "force config to defaults" does not cover it unless it names both. It is an
+    argument for U-Boot failsafe or maskrom recovery on any unit of unknown
+    provenance, arrived at from the update path rather than from the boot path.
+
+    UNANSWERED, and it needs an OS image rather than either repo: does anything
+    consume /userdata/update.img WITHOUT an explicit trigger? kvmd no longer
+    invokes an updater, but the read half is device-side and unremovable from
+    here -- updateEngine and swupdate_start.sh, neither of which this repo
+    ships. On a unit or an unpacked image, in this order:
+
+      a. dump the U-Boot environment (fw_printenv, or the env partition) and
+         its boot script; grep both for update.img, misc, and recovery
+      b. grep /etc/init.d/S* and any recovery scripts for the same
+      c. only then decide whether a staged image is inert
 
     Implement against a real unit or a device fixture, not by inference from the
     source tree.
