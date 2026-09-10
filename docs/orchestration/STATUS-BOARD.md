@@ -190,3 +190,47 @@ is staged below in the house style of the *Verification conventions* section.
 Also queued, same section, from rule 12 of the standing rules: *a source search
 proves the absence of a caller, never the absence of a mechanism* — confirm
 whether it is already present before adding.
+
+## Owner decisions taken — 2026-09-10
+
+**Keep everything as simple as possible for now.** Recorded so it is not
+re-litigated by the next reader.
+
+### D-016 (proposed) — no second signature model this cycle
+
+Plugins stay at `signature.model: hash-only`. **No v3 contract bump.**
+
+The "a plugin is just a GitHub repo, piggyback its hashing and signing" idea was
+evaluated and is sound *in a reshaped form* — GitHub as an authoring and
+distribution **source** that the server verifies, never a trust root the device
+reaches. It is recorded here and deliberately not built.
+
+Deferring costs nothing, which is the point of the pattern already in the tree:
+`signature.model` is a required enum with exactly one accepted value and
+`entries` enforced empty. The shape is reserved; adding a value later does not
+cost a version bump across both implementations. That is why this is a cheap
+"not now" rather than a decision that compounds.
+
+If it is ever picked up, the five constraints that shape it are: D-003 (the
+anti-pattern is unpinned trust of a third party, which is what a device
+trusting Fulcio would be); zero-new-device-dependency was a deliberate bundle
+format choice; the device has no egress to a third party; `revision` is a
+monotonic integer and git supplies no such thing, so downgrade protection stays
+explicit either way; and a git tree is not a bundle tree — `read_placed_tree`
+raises on a symlink, git repos carry symlinks and mode bits, and `.git` must
+never ship. A server-only model would also be the first deliberate asymmetry
+between the two language halves and would need its own vectors asserting the
+device refuses it.
+
+### D-017 (proposed) — `sandbox` vocabulary stays empty
+
+Same pattern, same reason. No entry joins the vocabulary until it has a named
+enforcement point that exists. A permission that displays and does not hold at
+the enforcement point is a hidden button.
+
+### Consequence for the branch plan
+
+The eight scoped workstreams are a menu, not a queue. Take the smallest genuinely
+ungated ones; do not start the speculative ones (plugin store UI, tunnel client,
+per-model config) on the strength of the plan alone. Plugin device half is
+**local drop-in only**, against the injected placement root.
