@@ -328,6 +328,41 @@ so it is the instance of this bug that is already live rather than latent.
 
 # Open
 
+## The mypy gate in CI has been blocked, not passing — it checked nothing
+
+`testenv/tests/test_attestation.py:342` did
+`from testenv.tests.test_routes import collect_routes`. That gives mypy a
+second module name (`testenv.tests.test_routes`) for a file it already has as
+`tests.test_routes`, and mypy treats that as a BLOCKING error rather than a type
+error:
+
+```
+error: Source file found twice under different module names
+Found 1 error in 1 file (errors prevented further checking)
+```
+
+Exit code 2. The tox summary line reads `mypy: FAIL code 2`, which looks like
+"two errors" and is in fact mypy's exit status for "could not run". Nothing in
+the tree was type-checked, on any run, since that import was written.
+
+Fixed by making the import relative (`from .test_routes import ...`), which is
+what the rest of the suite does. mypy then completes: **116 errors in 38 files,
+286 source files checked** — in the reconstructed venv, and the figure is
+environment-dependent, because `ignore_missing_imports = true` silences whatever
+is not installed. The same command with fewer packages installed reported 91.
+CI's number is the one that counts.
+
+Two of those errors were in `kvmd/tools.py`, on `run_command`'s return, which is
+the value `kvmd/plugins/auth/webauthn.py` reads as the openssl signature verdict.
+Fixed in the same series.
+
+**Still open:** the other 114. And the reading habit that hid this — `FAIL code N`
+in a tox summary is an exit status, not a count. `pylint: FAIL code 30` is
+pylint's bitmask (convention+refactor+warning+error), not 30 findings;
+`vulture: FAIL code 3` is an exit status too. Every one of those needs its own
+output read before anyone states a number.
+
+
 
 ## `contract/plugins/wire.md:253-257` — the bundle rejection list does not mention the rule both halves now enforce
 

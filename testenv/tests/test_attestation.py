@@ -338,10 +338,15 @@ def test_attest__route_inventory_matches_the_fixture() -> None:
     # The same AST walk as test_routes.py, asserted here too so that an
     # attestation run is self-contained: a device is certified against the
     # inventory, not against whatever the source happens to declare today.
-    import sys
-    if _ROOT not in sys.path:
-        sys.path.insert(0, _ROOT)
-    from testenv.tests.test_routes import collect_routes
+    #
+    # Imported relatively, and that is not cosmetic. `from testenv.tests.
+    # test_routes import ...` gave mypy a second module name for a file it
+    # already had as `tests.test_routes`, which is not a type error but a
+    # BLOCKING one: mypy exits 2 having checked nothing. It has been doing that
+    # in CI since this line was written, so every type error in the tree --
+    # including two in kvmd/tools.py on the WebAuthn signature-gate path -- went
+    # unreported by a gate that looked like it was running.
+    from .test_routes import collect_routes  # pylint: disable=import-outside-toplevel
     assert collect_routes() == _routes()
 
 
