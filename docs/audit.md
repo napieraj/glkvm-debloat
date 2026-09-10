@@ -18,7 +18,7 @@ Every security defect found in it lives in code PiKVM never wrote.
 | API layer growth | **6.5×** — 11,436 lines of route code against upstream's 1,769 |
 | New tests for it | **0** — roughly 9,700 added API lines ship with no test of their own |
 | Lint, identical config | **742** violations of the fork's own checked-in flake8 rules (upstream: none) |
-| Findings, all fork-only | **21** — three reach root, two of them without credentials; one is structural rather than a defect; two reach beneath the OS, and one of those is a disclosure item this branch cannot fix |
+| Findings, all fork-only | **22** — three reach root, two of them without credentials; one is structural rather than a defect; two reach beneath the OS, and one of those is a disclosure item this branch cannot fix |
 
 ---
 
@@ -80,7 +80,7 @@ whitespace-on-blank-line, 75 missing-space-after-comma and 71 unused imports.
 
 ---
 
-## 3. Security — twenty-one findings, three of them reach root
+## 3. Security — twenty-two findings, three of them reach root
 
 Severity here is consequence on a device whose stated job is out-of-band access to
 other machines. A defect that yields a root shell on the KVM yields the console of
@@ -386,11 +386,61 @@ it is a single-token delete.
 
 The consequence is that no route on the device can terminate a session it does not
 hold the token for. There is no "log out everywhere", and the token an attacker minted
-by any of the paths above survives the victim logging out, changing nothing but their
-own cookie. Note that a password change does not close sessions either: nothing in
-`change_password` touches `__sessions`.
+by any of the paths above survives the victim logging out — which is precisely what a
+user does when they suspect compromise. Note that a password change does not close
+sessions either: nothing in `change_password` touches `__sessions`.
 
-*fork-only · verified · `auth.py:333–345`, the commented-out loop at `:337–341`*
+**The guard for this property was left to rot rather than updated, which is the part
+that makes it a finding rather than a design note.** Upstream's test asserted the
+removed behaviour directly — `assert manager.check(token2) is None` after logging out
+`token1`, at `testenv/tests/apps/kvmd/test_auth.py:119` on `main`. The fork changed
+the behaviour and left that assertion in place, still asserting revoke-all. It never
+went red, because the same file fails at import on `main` (see the CI gap above) and
+has not been collected in any environment since. So a security property was given up
+with no advisory, no changelog entry, and a test that would have caught it sitting
+one import error away from running. The absence of a red is not evidence of a green.
+
+The behaviour is recoverable at any time: the loop is commented out, not deleted, so
+restoring revoke-all is uncommenting five lines. Whether to is a real decision —
+revoke-all is genuinely irritating if you use several browsers — but it should be a
+decision, made once, with the consequence written down, rather than the current state
+of having been settled by a developer comment.
+
+On the debloat branch the assertion now states the fork's actual behaviour positively
+(`check(token2) == "admin"`) with a comment saying why, so the property is pinned in
+whichever direction it is chosen.
+
+*fork-only · verified · `auth.py:239–251`, the commented-out loop at `:243–249`; the
+dead assertion at `testenv/tests/apps/kvmd/test_auth.py:119` on `main`*
+
+### LOW — The brute-force hint is process-global, and the attacker clears it
+
+`login()` returns a count of failed attempts alongside the token, and the API puts it
+in the login response body and the log line. The counter is a single integer on
+`AuthManager`, incremented on any failed login by any username and zeroed by the next
+successful login by any user.
+
+Two consequences, and the second is the reason this is a finding rather than a naming
+nit. On a device with more than one account, or any background client that
+authenticates, the number a user is shown was accumulated by attempts against other
+accounts and reset by their successes — it is noise. And a brute-forcer who eventually
+succeeds **zeroes the counter as part of succeeding**, so the value is at its least
+informative in exactly the circumstance it exists to report.
+
+Scoping it per account fixes the first half and not the second, and it would introduce
+an attacker-controlled dictionary keyed on an arbitrary username string into the
+authentication path — new unbounded state in the one place this build is trying to
+shrink. So on the debloat branch it is renamed instead, to
+`failed_logins_since_any_success`, in the field, the log line and the response body,
+with a comment at the definition stating that it is a display value and not an
+authentication signal.
+
+The real answer to "was this device brute-forced" is a durable authentication log,
+which this build does not have and which this counter must not be mistaken for. It is
+recorded here so that nobody later treats a number in a login response as evidence.
+
+*fork-only · verified · `auth.py:118–123, 170–178, 182–190`, `api/auth.py:254, 262` ·
+renamed on this branch; the semantics are unchanged and deliberately so*
 
 ### MEDIUM — An unauthenticated route confirms the device's own MAC address
 
@@ -868,6 +918,25 @@ while the program used `"Glinet device"` and rejected empty.
 A lint gate that reports a hundred real findings and is never run is worse than no
 gate: it produces the appearance of coverage. All of the above are fixed on the
 debloat branch, which reports 0 F821, 0 F811 and 0 F601.
+
+### mypy, measured the same way
+
+`main` fails its own mypy target with **214 errors across 41 files** (260 source files
+checked, `testenv/linters/mypy.ini`, the configuration the fork itself checked in). The
+debloat branch reports **103 errors across 31 files** — better, not clean, and most of
+the improvement is deletion rather than repair.
+
+One caveat found while measuring it, and worth recording because it is the same shape
+as everything else in this section: the debloat branch appeared to be **mypy-clean**
+until this measurement. It was not. A single test import spelled
+`from testenv.tests.test_routes import ...` gave mypy a second module name for one
+file, and mypy answers that condition with one error and **stops checking the tree**.
+"Found 1 error" reads like success. Fixed to a relative import, at which point the
+real 103 appeared.
+
+Three numbers now say the same thing about `main`'s CI: 742 flake8 violations
+including 100 pyflakes findings, 214 mypy errors, and an authentication test suite that
+cannot be collected. None of these gates is misconfigured. None of them runs.
 
 ### The test suite that cannot run on `main`
 

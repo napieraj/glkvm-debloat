@@ -293,10 +293,12 @@ def test_attest__route_inventory_matches_the_fixture() -> None:
     # The same AST walk as test_routes.py, asserted here too so that an
     # attestation run is self-contained: a device is certified against the
     # inventory, not against whatever the source happens to declare today.
-    import sys
-    if _ROOT not in sys.path:
-        sys.path.insert(0, _ROOT)
-    from testenv.tests.test_routes import collect_routes
+    # RELATIVE, deliberately. Spelling it 'testenv.tests.test_routes' gives
+    # mypy a second module name for the same file -- 'tests.test_routes'
+    # from testenv/ as the package root, since testenv/ has no __init__.py --
+    # and mypy answers that with one error and STOPS CHECKING THE TREE. It
+    # looked like a clean run for as long as it was written the other way.
+    from .test_routes import collect_routes
     assert collect_routes() == _routes()
 
 

@@ -123,7 +123,7 @@ async def test_ok__internal(tmpdir) -> None:  # type: ignore
 
         # The fork's logout() closes only the session it is given. Upstream
         # closed every session belonging to that user, and the loop that did
-        # so survives commented out at auth.py:337-341. token2 therefore stays
+        # so survives commented out at auth.py:243-249. token2 therefore stays
         # valid here; this assertion records the fork's behaviour, not a wish.
         manager.logout(token1)
 

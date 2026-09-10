@@ -115,9 +115,12 @@ class AuthManager:  # pylint: disable=too-many-arguments,too-many-instance-attri
 
         self.__sessions: dict[str, _Session] = {}  # {token: session}
 
-        # 自上一次登录成功以来的全局登录失败次数（仅内存，重启清零），
-        # 用于在登录成功时提示用户是否疑似遭遇暴力破解。
-        self.__failed_since_last_success = 0
+        # PROCESS-GLOBAL count of failed logins since ANY user last succeeded.
+        # In memory only, zeroed on restart. It is a courtesy display value and
+        # NOT an authentication signal -- see docs/audit.md. Named for what it
+        # counts: it is not per-account, and a successful login clears it,
+        # including the attacker's own. Do not build a decision on it.
+        self.__failed_logins_since_any_success = 0
 
     def is_auth_enabled(self) -> bool:
         return self.__enabled
@@ -164,22 +167,26 @@ class AuthManager:  # pylint: disable=too-many-arguments,too-many-instance-attri
                 ws_started=0,
             )
             self.__sessions[token] = session
-            failed_since_last = self.__consume_failed_since_last_success()
-            get_logger(0).info("Logged in user %r; expire=%s, sessions_now=%d, failed_since_last_success=%d",
+            failed_global = self.__consume_failed_logins_since_any_success()
+            get_logger(0).info("Logged in user %r; expire=%s, sessions_now=%d, failed_logins_since_any_success=%d",
                                session.user,
                                self.__format_expire_ts(session.expire_ts),
                                self.__get_sessions_number(session.user),
-                               failed_since_last)
-            return (token, failed_since_last)
+                               failed_global)
+            return (token, failed_global)
         else:
-            self.__failed_since_last_success += 1
+            self.__failed_logins_since_any_success += 1
 
         return (None, 0)
 
-    def __consume_failed_since_last_success(self) -> int:
-        """返回自上一次登录成功以来累计的全局登录失败次数，并清零计数。"""
-        count = self.__failed_since_last_success
-        self.__failed_since_last_success = 0
+    def __consume_failed_logins_since_any_success(self) -> int:
+        """返回自任一用户上次登录成功以来的全局失败次数，并清零。
+
+        Global, not per-account, and cleared by whoever succeeds next. That
+        makes it a display value, not evidence: see docs/audit.md.
+        """
+        count = self.__failed_logins_since_any_success
+        self.__failed_logins_since_any_success = 0
         return count
 
     def __make_new_token(self) -> str:

@@ -251,7 +251,7 @@ class AuthApi:
                 client_ip, device_type, browser, user_agent,
             )
 
-            (token, failed_since_last_success) = await self.__auth_manager.login(
+            (token, failed_logins_since_any_success) = await self.__auth_manager.login(
                 user=user,
                 passwd=passwd,
                 expire=expire,
@@ -259,7 +259,7 @@ class AuthApi:
             if token:
                 return make_json_response({
                     "token": token,
-                    "failed_since_last_success": failed_since_last_success,
+                    "failed_logins_since_any_success": failed_logins_since_any_success,
                 }, set_cookies={_COOKIE_AUTH_TOKEN: token},
                     secure_cookies=is_request_secure(req))
             raise ForbiddenError()
