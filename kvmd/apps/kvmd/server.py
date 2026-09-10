@@ -84,6 +84,7 @@ from .api.init import InitApi
 from .api.fingerbot import FingerbotApi
 from .api.wol import WolApi
 from .api.system import SystemApi
+from .api.edid import EdidApi
 from .api.info import InfoApi
 from .api.log import LogApi
 from .api.ugpio import UserGpioApi
@@ -214,6 +215,7 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
             MsdApi(msd),
             RndisApi(),
             UpgradeApi(),
+            EdidApi(),
             StreamerApi(streamer, ocr),
             self.__recorder_api,
             # SwitchApi(switch),

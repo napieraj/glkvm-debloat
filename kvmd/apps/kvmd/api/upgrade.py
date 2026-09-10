@@ -14,23 +14,13 @@ from functools import lru_cache
 from concurrent.futures import ProcessPoolExecutor
 from ....logging import get_logger
 
-from ....htserver import exposed_http, make_json_exception, make_json_response, BadRequestError
+from ....htserver import exposed_http, make_json_exception, make_json_response
 
 UPGRADE_DIR = "/userdata/"
 UPGRADE_FILE = "update.img"
-EDID_FILE = "/tmp/edid.bin"
-EDID_USER_FILE = "/etc/kvmd/user/edid.txt" # 用于保存当前写入的EDID
-EDID_LIST_FILE = "/etc/kvmd/edid.json"
 LOG_DIR = "/tmp/log"
 # 与 aiohttp Application 默认 client_max_size(1MiB) 对齐；超出由框架返回 413
 _FRONTEND_LOG_MAX_BYTES = 1024 * 1024
-LT6911C_UPGRADE_CMD = "lt6911c_upgrade -d /dev/i2c-1 -e /tmp/edid.bin && sleep 1 && echo 1 >  /sys/bus/i2c/devices/1-002b/reset"
-GSV1127X_UPGRADE_CMD = "echo 0 > /sys/bus/i2c/devices/1-0058/poll_interval_enable && sleep 1 " \
-                            "&& gsv1127x_upgrade -d /dev/i2c-1 -e /tmp/edid.bin && sleep 1 " \
-                            "&& echo 1 > /sys/bus/i2c/devices/1-0058/poll_interval_enable"
-GSV1127_UPGRADE_CMD = "echo 0 > /sys/bus/i2c/devices/0-0058/enable_stream && sleep 0.5 " \
-                            "&& gsv1127x_upgrade -d /dev/i2c-0 -e /tmp/edid.bin && sleep 0.5 " \
-                            "&& echo 1 > /sys/bus/i2c/devices/0-0058/enable_stream"
 MODEL_PATH = "/proc/gl-hw-info/model"
 
 # 以字面量 "." 开头只匹配 IPv4 后三段，借助 re 引擎的字面量前缀快速跳过，
@@ -592,45 +582,6 @@ class UpgradeApi:
 
         self.__update_engine = UpdateEngine()
 
-    def __validate_edid(self, edid_str: str) -> bool:
-        # 移除所有空白字符
-        edid_str = ''.join(edid_str.split())
-        
-        # 检查长度（标准EDID是128字节或256字节，每个字节由2个十六进制字符表示）
-        if len(edid_str) not in [256, 512]:
-            return False
-            
-        # 检查是否都是有效的十六进制字符
-        if not re.match(r'^[0-9A-Fa-f]+$', edid_str):
-            return False
-            
-        return True
-        
-    def __convert_edid_to_bytes(self, edid_str: str) -> bytes:
-        # 移除所有空白字符
-        edid_str = ''.join(edid_str.split())
-        
-        # 如果EDID只有128字节(256个十六进制字符)，则追加指定的128字节
-        if len(edid_str) == 256:
-            # 追加的128字节数据
-            additional_bytes = (
-                "02 03 12 F0 23 09 04 01 83 01 00 00 65 03 0C 00 "
-                "10 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 "
-                "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 "
-                "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 "
-                "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 "
-                "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 "
-                "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 "
-                "00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 C0"
-            )
-            # 移除空格
-            additional_bytes = ''.join(additional_bytes.split())
-            # 合并原始EDID和追加的数据
-            edid_str = edid_str + additional_bytes
-            get_logger(0).info("EDID is only 128 bytes, automatically appending additional 128 bytes")
-            
-        # 将十六进制字符串转换为字节
-        return bytes.fromhex(edid_str)
     def __check_free_space(self, path: str, required_size: int) -> tuple[bool, str]:
         """检查指定路径所在分区的剩余空间是否足够
         
@@ -701,90 +652,6 @@ class UpgradeApi:
     @exposed_http("GET", "/upgrade/status")
     async def __status_handler(self, request: web.Request) -> web.Response:
         return make_json_response({"enabled": True})
-
-    @exposed_http("POST", "/upgrade/edid")
-    async def __edid_handler(self, request: web.Request) -> web.Response:
-        try:
-            # 读取请求体中的edid参数
-            data = await request.post()
-            edid_str = data.get("edid", "")
-
-            # 验证EDID数据
-            if not self.__validate_edid(edid_str):
-                raise BadRequestError("Invalid EDID format")
-                
-            # 转换为字节数据
-            edid_bytes = self.__convert_edid_to_bytes(edid_str)
-            
-            # 写入临时文件
-            with open(EDID_FILE, "wb") as f:
-                f.write(edid_bytes)
-            
-            # 保存原始edid字符串到用户配置文件
-            os.makedirs(os.path.dirname(EDID_USER_FILE), exist_ok=True)
-            with open(EDID_USER_FILE, "w") as f:
-                f.write(edid_str)
-            await asyncio.create_subprocess_shell("sync")
-            
-            cmd_map = {
-                "rm10rc": GSV1127X_UPGRADE_CMD,
-                "rm4pe": GSV1127X_UPGRADE_CMD,
-                "rmq1": GSV1127_UPGRADE_CMD,
-            }
-
-            edid_cmd = cmd_map.get(self.__model, LT6911C_UPGRADE_CMD)
-            # get_logger(0).info(f"Using command: {edid_cmd}")
-
-            # 执行x_upgrade命令
-            proc = await asyncio.create_subprocess_shell(
-                edid_cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, stderr = await proc.communicate()
-            
-            if proc.returncode != 0:
-                raise BadRequestError(f"Failed to execute x_upgrade: {stderr.decode()}")
-                
-            return make_json_response({
-                "status": "success",
-                "message": "EDID data has been written and applied"
-            })
-            
-        except BadRequestError as ex:
-            return make_json_exception(ex, 400)
-        except Exception as ex:
-            return make_json_exception(str(ex), 500)
-
-    @exposed_http("GET", "/upgrade/get_edid")
-    async def __get_edid_handler(self, request: web.Request) -> web.Response:
-        try:
-            if not os.path.exists(EDID_USER_FILE):
-                # 如果文件不存在，返回空字符串
-                return make_json_response({"edid": ""})
-                
-            # 读取保存的EDID数据
-            with open(EDID_USER_FILE, "r") as f:
-                edid_str = f.read().strip()
-                
-            return make_json_response({"edid": edid_str})
-            
-        except Exception as ex:
-            get_logger(0).error(f"Error getting EDID data: {str(ex)}")
-            return make_json_exception(str(ex), 500)
-
-    @exposed_http("GET", "/upgrade/edid_list")
-    async def __get_edid_list_handler(self, _: web.Request) -> web.Response:
-        try:
-            with open(EDID_LIST_FILE, "r", encoding="utf-8") as f:
-                data = f.read()
-        except FileNotFoundError:
-            get_logger(0).warning("edid.json not found at %s", EDID_LIST_FILE)
-            data = "[]"
-        except Exception as ex:
-            get_logger(0).error(f"Error reading edid.json: {ex}")
-            data = "[]"
-        return web.Response(text=data, content_type="application/json")
 
     @exposed_http("GET", "/upgrade/log")
     async def __log_get_handler(self, request: web.Request) -> web.Response:
