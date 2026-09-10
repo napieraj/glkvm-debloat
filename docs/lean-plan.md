@@ -202,6 +202,21 @@ Add the button row after the login button (web/login/index.pug:53-55 / web/login
 
 ### 13. Build kvmd/apps/beacon/ as a plain module with an init.d script, not a systemd unit
 
+> **HAZARD — `POST /upgrade/upload` is a write with no reader.** Step 9 deleted
+> `POST /upgrade/start`, so nothing in the tree consumes what upload writes to
+> `/userdata/update.img`, and step 9 also deleted the only UI that called it.
+> What is left is an authenticated arbitrary-file write, of attacker-chosen
+> content, at a path whose whole purpose is to be flashed. It is inert only for
+> as long as no apply path exists.
+>
+> The enrolment arc owns the decision, and there are only two acceptable
+> outcomes: give it an apply path that verifies a signature against a pin the
+> device holds — never a `skip_verify`-shaped escape, see the HIGH finding in
+> `docs/audit.md` — or delete the route. Leaving it as-is is the third option
+> and it is not one: the next person to add an apply path inherits an upload
+> surface nobody re-reviewed.
+
+
 > **HAZARD — enrolment must not re-open CRITICAL 3.** `GET /init/init` is deleted,
 > but `InitManager.init()` survives and now has NO caller in the tree. It is kept
 > precisely because enrolment needs that operation: it sets the admin password AND
