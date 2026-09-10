@@ -1,10 +1,17 @@
 name: TOX CI
 
+# The branch filter said [master] until 2026-09-10. This repository has no
+# master branch and never has -- the default is main -- so this workflow had
+# never run, on any push or any pull request, for the whole life of the fork.
+# Every guard the suite contains was unenforced in CI that entire time, which
+# is how a set of load-bearing checks came to have mutations that leave the
+# suite green. Do not narrow this filter without checking the branch names
+# against `git ls-remote --heads origin`.
 on:
   push:
-    branches: [master]
+    branches: [main, "claude/**", mcp]
   pull_request:
-    branches: [master]
+    branches: [main]
 
 jobs:
   build:
