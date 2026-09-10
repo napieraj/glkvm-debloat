@@ -76,6 +76,7 @@ POST /hid/set_connected auth=True usc=True exe=-
 POST /hid/set_jiggler_schedule auth=True usc=True exe=-
 POST /hid/set_params auth=True usc=True exe=-
 POST /init/change_password auth=True usc=True exe=-
+POST /mcp auth=True usc=True exe=-
 POST /msd/remove auth=True usc=True exe=-
 POST /msd/reset auth=True usc=True exe=-
 POST /msd/set_connected auth=True usc=True exe=-

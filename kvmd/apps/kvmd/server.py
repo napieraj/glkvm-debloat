@@ -103,6 +103,7 @@ from .api.export import ExportApi
 from .api.redfish import RedfishApi
 from .api.recorder import RecorderApi
 from .api.serial import SerialApi
+from .api.mcp import McpApi
 
 
 
@@ -244,6 +245,7 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
             ExportApi(info_manager, atx, user_gpio),
             RedfishApi(info_manager, atx),
             self.__serial_api,
+            McpApi(streamer, ocr, hid, atx, msd, keymap_path, log_reader),
         ]
         # Optional features come through the registry rather than an ad-hoc
         # append, so each one's unauthenticated surface is checked against its
