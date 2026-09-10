@@ -25,9 +25,10 @@ from ...logging import get_logger
 import os
 import json
 import subprocess
-import crypt
 import tempfile
 import stat
+
+from passlib.hash import sha512_crypt
 
 from ..htpasswd import _get_htpasswd_for_write_from_file
 from ...validators import ValidatorError
@@ -97,7 +98,20 @@ class InitManager:
         try:
             # 在Buildroot系统中直接修改/etc/shadow文件
             salt = os.urandom(8).hex()
-            hashed_password = crypt.crypt(password, f"$6${salt}$")  # SHA-512
+            # passlib, not crypt.crypt(). The stdlib `crypt` module was removed
+            # in Python 3.13, so `import crypt` at the top of this file made the
+            # whole of kvmd.apps.kvmd unimportable on any current interpreter --
+            # three of the suite's collection errors traced here, and an
+            # installed daemon would not have started at all.
+            #
+            # passlib is already a hard dependency of this tree (kvmd/crypto.py,
+            # the htpasswd tooling), so this adds nothing new. rounds=5000 is
+            # the value crypt.crypt() uses when the salt string carries no
+            # rounds field, and passlib omits the field at that value, so the
+            # output is byte-identical -- verified against stdlib crypt on
+            # Python 3.11 across empty, unicode, 72-byte and 200-byte passwords
+            # and pinned by test_init_password_hash.py.
+            hashed_password = sha512_crypt.using(salt=salt, rounds=5000).hash(password)  # SHA-512
 
             shadow_path = "/etc/shadow"
 
