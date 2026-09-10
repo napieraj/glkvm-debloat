@@ -95,11 +95,33 @@ from .api.rndis import RndisApi
 from .api.upgrade import UpgradeApi
 from .api.streamer import StreamerApi
 from .api.switch import SwitchApi
+
+from .features import Feature
+from .features import build_enabled
+from .features import register
 from .api.export import ExportApi
 from .api.redfish import RedfishApi
 from .api.recorder import RecorderApi
 from .api.serial import SerialApi
 
+
+
+# =====
+# The first feature through the registry, and deliberately the one that was
+# already special-cased: SwitchApi sat in the component list commented out,
+# with a conditional append underneath. That is what a missing extension point
+# looks like from the inside.
+#
+# It declares no unauthenticated routes, and build_enabled() refuses at
+# construction if that turns out to be false -- which is the property the
+# registry exists for.
+register(Feature(
+    name="switch",
+    mode="local-only",
+    core="HttpServer component list",
+    unauth=frozenset(),
+    build=(lambda switch, **_: SwitchApi(switch)),
+))
 
 # =====
 class StreamerQualityNotSupported(OperationError):
@@ -223,8 +245,13 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
             RedfishApi(info_manager, atx),
             self.__serial_api,
         ]
-        if self.__switch is not None:
-            self.__apis.append(SwitchApi(self.__switch))
+        # Optional features come through the registry rather than an ad-hoc
+        # append, so each one's unauthenticated surface is checked against its
+        # own declaration before the daemon binds a single route.
+        self.__apis.extend(build_enabled(
+            (["switch"] if self.__switch is not None else []),
+            switch=self.__switch,
+        ))
         self.__subsystems = [
             _Subsystem.make(auth_manager, "Auth manager"),
             _Subsystem.make(user_gpio,    "User-GPIO",    self.__EV_GPIO_STATE),

@@ -128,6 +128,19 @@ def exposed_http(
     return set_attrs
 
 
+def get_exposed_http(obj: object) -> list[HttpExposed]:
+    """Public accessor for a component's exposed HTTP routes.
+
+    The feature registry (apps/kvmd/features.py) needs to compare a component's
+    ACTUAL unauthenticated routes against what the feature declared, which means
+    reading the same reflection the server uses to bind them. Exposed as a
+    function rather than duplicated there, so the two can never disagree about
+    what counts as a route.
+    """
+
+    return _get_exposed_http(obj)
+
+
 def _get_exposed_http(obj: object) -> list[HttpExposed]:
     return [
         HttpExposed(
