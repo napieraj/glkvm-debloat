@@ -18,7 +18,7 @@ Every security defect found in it lives in code PiKVM never wrote.
 | API layer growth | **6.5×** — 11,436 lines of route code against upstream's 1,769 |
 | New tests for it | **0** — roughly 9,700 added API lines ship with no test of their own |
 | Lint, identical config | **742** violations of the fork's own checked-in flake8 rules (upstream: none) |
-| Findings, all fork-only | **19** — three reach root, two of them without credentials; one is structural rather than a defect |
+| Findings, all fork-only | **20** — three reach root, two of them without credentials; one is structural rather than a defect; one reaches beneath the OS |
 
 ---
 
@@ -80,7 +80,7 @@ whitespace-on-blank-line, 75 missing-space-after-comma and 71 unused imports.
 
 ---
 
-## 3. Security — nineteen findings, three of them reach root
+## 3. Security — twenty findings, three of them reach root
 
 Severity here is consequence on a device whose stated job is out-of-band access to
 other machines. A defect that yields a root shell on the KVM yields the console of
@@ -174,6 +174,28 @@ is authenticated, and its own finding below (credentials in the query string) is
 separate and still open.
 
 *fork-only · verified · `api/init.py:62–67`, `init.py:51–77, 95–163` (as found); route deleted on this branch*
+
+### HIGH — A query parameter disables firmware signature verification
+
+`POST /upgrade/start` read `skip_verify` from the **query string**, and on
+`true` or `1` logged a warning and skipped `verify_firmware_signature()`
+entirely, going on to flash whatever `POST /upgrade/upload` had written to
+`/userdata/update.img`. The vendor built a signature check and then shipped a
+documented way past it, reachable by anyone holding a session.
+
+The consequence is not a compromised session but a compromised device: firmware
+is the layer beneath every control in this audit, so an unsigned image survives
+a password change, a factory reset, and the rest of the debloat. Every other
+finding here is recoverable by reflashing; this one is the mechanism by which
+reflashing is the attack.
+
+Model `rmq1` skipped both checks unconditionally — the handler's first branch is
+`if self.__model == "rmq1": pass` — so on that hardware there was no
+verification to skip.
+
+*fork-only · verified · `api/upgrade.py:721–723` (parameter), `:734–736`
+(the skip), `:726` (the rmq1 branch), as found at 2a2fc1d; deleted on this
+branch with the route*
 
 ### HIGH — A route hands out the device's TLS private key
 

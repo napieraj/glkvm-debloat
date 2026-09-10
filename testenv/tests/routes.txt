@@ -45,16 +45,10 @@ GET /system/otg_functions auth=True usc=True exe=-
 GET /system/ssl_cert auth=True usc=True exe=-
 GET /system/time auth=True usc=True exe=-
 GET /system/timezone/list auth=True usc=True exe=-
-GET /upgrade/beta/download auth=True usc=True exe=-
-GET /upgrade/compare auth=True usc=True exe=-
-GET /upgrade/download auth=True usc=True exe=-
-GET /upgrade/download_cancel auth=True usc=True exe=-
-GET /upgrade/download_info auth=True usc=True exe=-
 GET /upgrade/edid_list auth=True usc=True exe=-
 GET /upgrade/get_edid auth=True usc=True exe=-
 GET /upgrade/log auth=True usc=True exe=-
 GET /upgrade/reboot auth=True usc=True exe=-
-GET /upgrade/reset_default auth=True usc=True exe=-
 GET /upgrade/status auth=True usc=True exe=-
 GET /upgrade/version auth=True usc=True exe=-
 GET /wol/list auth=True usc=True exe=-
@@ -122,7 +116,6 @@ POST /system/time auth=True usc=True exe=-
 POST /system/timezone auth=True usc=True exe=-
 POST /upgrade/edid auth=True usc=True exe=-
 POST /upgrade/log auth=True usc=True exe=-
-POST /upgrade/start auth=True usc=True exe=-
 POST /upgrade/upload auth=True usc=True exe=-
 POST /wol/add auth=True usc=True exe=-
 POST /wol/remove auth=True usc=True exe=-

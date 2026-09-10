@@ -125,6 +125,30 @@ def test_attest__the_unauthenticated_surface_is_small() -> None:
     )
 
 
+def test_attest__no_vendor_firmware_egress() -> None:
+    # lean-plan step 9 / D-001. The fork fetched firmware, version manifests and
+    # release notes from fw.gl-inet.com on an authenticated GET, and wrote the
+    # image straight to /userdata/update.img. A device that phones a vendor host
+    # for code is a device whose supply chain is that host's.
+    hits = _grep(r"gl-inet\.com", "kvmd", "web",
+                 exts=(".py", ".js", ".pug", ".html", ".css", ".conf"))
+    assert not hits, f"vendor firmware egress is back: {hits}"
+
+
+def test_attest__no_factory_reset_route() -> None:
+    # lean-plan step 9. A factory reset clears the launcher pin (design 3.3), so
+    # one authenticated GET un-enrolled the device. It must not come back as a
+    # route; the recovery path for a wedged unit is physical, deliberately.
+    #
+    # Matched as the script name or the route path, not the bare word: web
+    # switch.js has an unrelated local named reset_default for an ATX delay
+    # slider, and a ratchet that fires on a coincidence gets deleted rather
+    # than believed.
+    hits = _grep(r"reset_default\.sh|/upgrade/reset_default", "kvmd", "web",
+                 exts=(".py", ".js", ".pug", ".html", ".css", ".conf"))
+    assert not hits, f"the factory-reset route is back: {hits}"
+
+
 def test_attest__one_exe_gated_route_and_it_is_not_the_gui() -> None:
     # audit.md section 3b. allowed_exe_paths authenticates with NO credential of
     # any kind -- _check_exe_path returns True on a path match alone -- so every

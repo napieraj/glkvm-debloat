@@ -1,5 +1,4 @@
 import asyncio
-import aiohttp
 from aiohttp import web
 from typing import Dict, Any
 import os
@@ -7,7 +6,6 @@ import re
 import zipfile
 import io
 import datetime
-import json
 import yaml
 import shutil
 import fnmatch
@@ -15,7 +13,6 @@ import glob
 from functools import lru_cache
 from concurrent.futures import ProcessPoolExecutor
 from ....logging import get_logger
-from .... import htclient
 
 from ....htserver import exposed_http, make_json_exception, make_json_response, BadRequestError
 
@@ -35,8 +32,6 @@ GSV1127_UPGRADE_CMD = "echo 0 > /sys/bus/i2c/devices/0-0058/enable_stream && sle
                             "&& gsv1127x_upgrade -d /dev/i2c-0 -e /tmp/edid.bin && sleep 0.5 " \
                             "&& echo 1 > /sys/bus/i2c/devices/0-0058/enable_stream"
 MODEL_PATH = "/proc/gl-hw-info/model"
-BASE_URL = "https://fw.gl-inet.com/kvm/{model}/release"
-BETA_BASE_URL = "https://fw.gl-inet.com/kvm/{model}/testing"
 
 # 以字面量 "." 开头只匹配 IPv4 后三段，借助 re 引擎的字面量前缀快速跳过，
 # 避免在全文每个数字位置回溯试探；第一段由 _mask_public_ipv4 向前扩展补全并做边界检查。
@@ -584,11 +579,7 @@ def _subprocess_build_zip(log_files: list, zip_path: str, sensitive_patterns: li
 
 class UpgradeApi:
     def __init__(self):
-        self.__download_lock = asyncio.Lock()
-        self.__current_download_task = None
-        self.__total_firmware_size = 0
-        
-        # 读取model信息并更新URL
+        # 读取model信息
         try:
             with open(MODEL_PATH, "r") as f:
                 model = f.read().strip()
@@ -599,10 +590,7 @@ class UpgradeApi:
         # 保存model信息
         self.__model = model
 
-        # 更新URL
-        self.__version_url = f"{BASE_URL.format(model=model)}/version"
-        self.__firmware_url = f"{BASE_URL.format(model=model)}/update.img"
-        self.__update_engine = UpdateEngine(BASE_URL.format(model=model))
+        self.__update_engine = UpdateEngine()
 
     def __validate_edid(self, edid_str: str) -> bool:
         # 移除所有空白字符
@@ -694,11 +682,6 @@ class UpgradeApi:
             return make_json_response({"filename": filename, "size": size})
         return web.HTTPBadRequest(text="No file uploaded")
 
-    @exposed_http("GET", "/upgrade/compare")
-    async def __compare_handler(self, request: web.Request) -> web.Response:
-        result = await self.__update_engine.compare_versions()
-        return make_json_response(result)
-
     @exposed_http("GET", "/upgrade/version")
     async def __version_handler(self, request: web.Request) -> web.Response:
         version = await self.__update_engine.get_local_verion()
@@ -710,57 +693,6 @@ class UpgradeApi:
         asyncio.create_task(self.__delayed_reboot())
         return make_json_response({"status": "Reboot started"})
 
-    @exposed_http("POST", "/upgrade/start")
-    async def __start_handler(self, request: web.Request) -> web.Response:
-        save_config = request.query.get("save_config")
-        # 统一处理字符串和布尔值的情况
-        save_config_value = str(save_config).lower() if save_config is not None else "true"
-        should_save = save_config_value not in ["false", "0"]
-
-        # 读取是否跳过签名验证的参数
-        skip_verify = request.query.get("skip_verify")
-        skip_verify_value = str(skip_verify).lower() if skip_verify is not None else "false"
-        should_skip_verify = skip_verify_value in ["true", "1"]
-        
-        # 在升级前先校验固件
-        if self.__model == "rmq1":
-            pass
-        else:
-            signature_valid = True
-            firmware_valid = True
-            messages = []
-
-            # 验证固件签名合法性（可通过 skip_verify 参数跳过）
-            if should_skip_verify:
-                get_logger(0).warning("Skipping firmware signature verification as requested")
-            else:
-                signature_result = await self.__update_engine.verify_firmware_signature()
-                if signature_result["status"] != "valid":
-                    signature_valid = False
-                    messages.append(signature_result.get("message", "Firmware signature verification failed"))
-
-            # 校验固件有效性
-            validation_result = await self.__update_engine.validate_firmware()
-            if validation_result["status"] != "valid":
-                firmware_valid = False
-                messages.append(validation_result.get("message", "Firmware validation failed"))
-
-            # 任一校验失败则返回错误
-            if not signature_valid or not firmware_valid:
-                return make_json_response({
-                    "status": "Upgrade failed",
-                    "signature_valid": signature_valid,
-                    "firmware_valid": firmware_valid,
-                    "message": "; ".join(messages),
-                    "stdout": validation_result.get("stdout", ""),
-                    "stderr": validation_result.get("stderr", ""),
-                })
-        
-        result = await self.__update_engine.start_upgrade(save_config=should_save)
-        if result.get("status") == "Upgrade started":
-            asyncio.create_task(self.__delayed_reboot())
-        return make_json_response(result)
-
     async def __delayed_reboot(self):
         await asyncio.create_subprocess_shell("sync")
         await asyncio.sleep(1)
@@ -769,76 +701,6 @@ class UpgradeApi:
     @exposed_http("GET", "/upgrade/status")
     async def __status_handler(self, request: web.Request) -> web.Response:
         return make_json_response({"enabled": True})
-
-    @exposed_http("GET", "/upgrade/reset_default")
-    async def __reset_default_handler(self, request: web.Request) -> web.Response:
-        # 创建异步任务运行恢复出厂设置命令
-        asyncio.create_task(self.__delayed_reset_default())
-        return make_json_response({"status": "Reset to factory default started"})
-        
-    async def __delayed_reset_default(self):
-        # 先同步数据到磁盘
-        await asyncio.create_subprocess_shell("sync")
-        await asyncio.sleep(1)
-        # 执行恢复出厂设置命令
-        await asyncio.create_subprocess_shell("/usr/sbin/reset_default.sh")
-
-    @exposed_http("GET", "/upgrade/download")
-    async def __download_handler(self, request: web.Request) -> web.Response:
-        return await self.__start_download_task(
-            base_url=self.__update_engine.get_base_url(),
-        )
-
-    @exposed_http("GET", "/upgrade/beta/download")
-    async def __beta_download_handler(self, request: web.Request) -> web.Response:
-        return await self.__start_download_task(
-            base_url=self.__update_engine.get_beta_base_url(),
-            list_sha256_url=self.__update_engine.get_beta_list_sha256_url(),
-        )
-
-    async def __start_download_task(self, base_url: str,
-                                     list_sha256_url: str = None) -> web.Response:
-        # 如果有正在进行的下载任务，取消它
-        if self.__current_download_task and not self.__current_download_task.done():
-            self.__current_download_task.cancel()
-            try:
-                await self.__current_download_task
-            except asyncio.CancelledError:
-                pass
-
-        # 创建新的下载任务。started 只承载"已取得固件大小"这一步的结果：
-        # 本请求拿到 size 就返回，剩下的下载在后台任务里继续，避免整个下载期间
-        # 一直占住这条 HTTP 连接（会导致后续 /api 请求被 nginx 卡住直到下载结束）
-        started: asyncio.Future = asyncio.get_event_loop().create_future()
-        self.__current_download_task = asyncio.create_task(
-            self._download_latest_firmware(base_url, list_sha256_url, started)
-        )
-        size = await started
-        return make_json_response({"size": size})
-
-    @exposed_http("GET", "/upgrade/download_cancel")
-    async def __download_cancel_handler(self, request: web.Request) -> web.Response:
-        self.__total_firmware_size = 0
-        if self.__current_download_task and not self.__current_download_task.done():
-            # 取消当前下载任务
-            self.__current_download_task.cancel()
-            try:
-                await self.__current_download_task
-            except asyncio.CancelledError:
-                pass
-            get_logger(0).info("Firmware download task has been manually cancelled")
-            return make_json_response({"status": "success", "message": "download task has been cancelled"})
-        else:
-            return make_json_response({"status": "warning", "message": "no download task is running"})
-
-    @exposed_http("GET", "/upgrade/download_info")
-    async def __download_info_handler(self, request: web.Request) -> web.Response:
-        # 获取当前固件大小
-        try:
-            size = os.path.getsize(f"{UPGRADE_DIR}{UPGRADE_FILE}")
-        except Exception as ex:
-            return make_json_response({"size": 0, "total_size": 0})
-        return make_json_response({"size": size, "total_size": self.__total_firmware_size})
 
     @exposed_http("POST", "/upgrade/edid")
     async def __edid_handler(self, request: web.Request) -> web.Response:
@@ -952,81 +814,8 @@ class UpgradeApi:
             get_logger(0).error(f"Error collecting logs: {str(ex)}")
             return make_json_exception(f"Error collecting logs: {str(ex)}", 500)
 
-    async def _download_latest_firmware(self, base_url: str, list_sha256_url: str,
-                                         started: asyncio.Future) -> None:
-        written = 0
-
-        async with self.__download_lock:
-            try:
-                # 使用get_list_sha256方法获取固件文件名
-                version, firmware_filename = await self.__update_engine.get_list_sha256(list_sha256_url)
-                if not firmware_filename:
-                    raise BadRequestError("Unable to get firmware filename")
-
-                # 构建完整的固件下载URL
-                firmware_url = f"{base_url}/{firmware_filename}"
-                get_logger(0).info("Generated firmware URL: %s", firmware_url)
-
-                async with htclient.download(
-                    url=firmware_url,
-                    timeout=10.0,
-                    read_timeout=(7 * 24 * 3600),  # 7天超时
-                ) as remote:
-                    size = remote.content_length
-                    if not size:
-                        raise BadRequestError("Unable to get firmware size")
-
-                    # 立即把文件大小交回请求方，请求到此就结束了
-                    self.__total_firmware_size = size
-                    if not started.done():
-                        started.set_result(size)
-
-                    get_logger(0).info("Downloading firmware from %r to %r ...", firmware_url, f"{UPGRADE_DIR}{UPGRADE_FILE}")
-
-                    # 分块下载并写入文件
-                    chunk_size = 8192
-                    with open(f"{UPGRADE_DIR}{UPGRADE_FILE}", "wb") as f:
-                        try:
-                            async for chunk in remote.content.iter_chunked(chunk_size):
-                                f.write(chunk)
-                                written += len(chunk)
-                        except asyncio.CancelledError:
-                            get_logger(0).info("Download task cancelled")
-                            raise
-                    get_logger(0).info("Firmware downloaded, %d bytes written", written)
-
-            except asyncio.CancelledError:
-                # 还没上报 size 就被取消，让等待中的请求收到 400 而不是一直挂着
-                if not started.done():
-                    started.set_exception(BadRequestError("Download task was cancelled"))
-                raise
-            except Exception as ex:
-                get_logger(0).error("Error downloading firmware: %s", str(ex))
-                if not started.done():
-                    started.set_exception(ex if isinstance(ex, BadRequestError) else BadRequestError(str(ex)))
-                # size 已上报时请求早已返回，这里只记日志，避免后台任务异常无人接收
 
 class UpdateEngine:
-    def __init__(self,base_url: str):
-        self.__base_url = base_url
-        self.__version_url = base_url+"/version"
-        self.__firmware_url = base_url+"/update.img"
-        self.__list_sha256_url = base_url+"/list-sha256.txt"
-
-        try:
-            with open(MODEL_PATH, "r") as f:
-                model = f.read().strip()
-        except Exception as e:
-            get_logger(0).warning(f"Failed to read model info, using default value rm1: {str(e)}")
-            model = "rm1"
-
-        # 保存model信息
-        self.__model = model
-
-        # Beta渠道URL
-        self.__beta_base_url = BETA_BASE_URL.format(model=model)
-        self.__beta_list_sha256_url = f"{self.__beta_base_url}/list-sha256.txt"
-
     async def get_local_verion(self):
         with open("/etc/version", "r") as f:
             local_content = f.read().strip()
@@ -1038,293 +827,3 @@ class UpdateEngine:
             local_content = f.read().strip()
         local_dict = dict(line.split('=') for line in local_content.splitlines())
         return local_dict.get('RK_MODEL', '')
-
-    async def get_list_sha256(self, list_sha256_url: str = None) -> tuple[str, str]:
-        url = list_sha256_url or self.__list_sha256_url
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(url) as response:
-                    if response.status == 200:
-                        content = await response.text()
-                        first_line = content.splitlines()[0]
-                        version = first_line.split()[0]  # 获取第一个字段作为版本号
-                        firmware = first_line.split()[1]  # 获取第二个字段作为固件类型
-                        return version, firmware
-                    else:
-                        get_logger(0).error(f"Failed to get list-sha256 from {url}: {response.status}")
-                        return "", ""
-        except asyncio.CancelledError:
-            get_logger(0).warning("List-sha256 request was cancelled")
-            return "", ""
-        except Exception as e:
-            get_logger(0).error(f"Error getting list-sha256: {str(e)}")
-            return "", ""
-    
-    def get_base_url(self) -> str:
-        return self.__base_url
-
-    def get_beta_base_url(self) -> str:
-        return self.__beta_base_url
-
-    def get_beta_list_sha256_url(self) -> str:
-        return self.__beta_list_sha256_url
-
-    async def __get_metadata(self, version: str, base_url: str = None) -> Dict[str, Any]:
-        """获取指定版本的metadata信息"""
-        try:
-            if base_url is None:
-                base_url = self.__base_url
-            metadata_url = f"{base_url}/metadata_{version}"
-            async with aiohttp.ClientSession() as session:
-                async with session.get(metadata_url) as response:
-                    if response.status == 200:
-                        text = await response.text()
-                        metadata = json.loads(text)
-                        return metadata
-                    else:
-                        get_logger(0).error(f"Failed to get metadata: {response.status}")
-                        return {}
-        except asyncio.CancelledError:
-            # 处理请求被取消的情况
-            get_logger(0).warning("Metadata request was cancelled")
-            return {}
-        except Exception as e:
-            get_logger(0).error(f"Error getting metadata: {str(e)}")
-            return {}
-
-    async def __fetch_channel_version(self, list_sha256_url: str, base_url: str, channel: str) -> Dict[str, Any]:
-        """获取指定渠道的版本信息
-        
-        Args:
-            list_sha256_url: list-sha256.txt 的完整URL
-            base_url: 渠道的base URL，用于获取metadata
-            channel: 渠道名称，用于日志
-            
-        Returns:
-            Dict: 包含 version, release_note, release_note_cn, error 字段
-        """
-        info: Dict[str, Any] = {"version": "", "release_note": "", "release_note_cn": "", "error": None}
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.get(list_sha256_url) as response:
-                    if response.status != 200:
-                        info["error"] = f"{channel} channel returned status code: {response.status}"
-                        return info
-                    list_content = await response.text()
-                    lines = list_content.strip().splitlines()
-                    if not lines:
-                        info["error"] = f"Empty {channel} list-sha256 response"
-                        return info
-                    parts = lines[0].split()
-                    if not parts:
-                        info["error"] = f"Invalid {channel} list-sha256 format"
-                        return info
-                    version = parts[0]
-                    metadata = await self.__get_metadata(version, base_url)
-                    if metadata and "version" in metadata:
-                        version_info = metadata["version"]
-                        info["version"] = f"V{version_info['release']} {version_info['firmware_type']}"
-                        info["release_note"] = metadata.get("release_note", "")
-                        info["release_note_cn"] = metadata.get("release_note_cn", "")
-                    else:
-                        info["error"] = f"Unable to get {channel} version information from metadata"
-        except asyncio.CancelledError:
-            info["error"] = f"{channel} request was cancelled"
-            get_logger(0).warning(f"{channel} version request was cancelled")
-        except Exception as e:
-            info["error"] = f"Failed to fetch {channel} version: {str(e)}"
-        return info
-
-    async def compare_versions(self) -> Dict[str, Any]:
-        # 初始化返回结果
-        result = {
-            "local_model": "",
-            "local_version": "",
-            "server_model": "",
-            "server_version": "",
-            "beta_version": "",
-            "beta_release_note": "",
-            "beta_release_note_cn": "",
-            "beta_error": None,
-            "error": None
-        }
-
-        # 读取本地版本
-        try:
-            with open("/etc/version", "r") as f:
-                local_content = f.read().strip()
-            local_dict = dict(line.split('=') for line in local_content.splitlines())
-            result["local_model"] = local_dict.get('RK_MODEL', '')
-            result["local_version"] = local_dict.get('RK_VERSION', '')
-        except Exception as e:
-            result["error"] = f"Failed to read local version: {str(e)}"
-            return result
-
-        # 并发获取 Release 和 Beta 渠道版本信息
-        release_task = self.__fetch_channel_version(self.__list_sha256_url, self.__base_url, "Release")
-        beta_task = self.__fetch_channel_version(self.__beta_list_sha256_url, self.__beta_base_url, "Beta")
-        release_info, beta_info = await asyncio.gather(release_task, beta_task)
-
-        # 填充 Release 信息
-        if release_info["error"]:
-            result["error"] = release_info["error"]
-        else:
-            result["server_model"] = result["local_model"]
-            result["server_version"] = release_info["version"]
-            result["release_note"] = release_info["release_note"]
-            result["release_note_cn"] = release_info["release_note_cn"]
-
-        # 填充 Beta 信息
-        if beta_info["error"]:
-            result["beta_error"] = beta_info["error"]
-        else:
-            result["beta_version"] = beta_info["version"]
-            result["beta_release_note"] = beta_info["release_note"]
-            result["beta_release_note_cn"] = beta_info["release_note_cn"]
-
-        return result
-
-    async def start_upgrade(self,save_config: bool=True) -> Dict[str, str]:
-        if self.__model == "rmq1":
-            cmd = f"swupdate_start.sh -i /userdata/update.img" + (" -K" if save_config else "")
-        else:
-            save_config_cmd = " --keep_config" if save_config else ""
-            cmd = f"updateEngine --image_url={UPGRADE_DIR}{UPGRADE_FILE} --misc=update --savepath=/userdata/update.img --n {save_config_cmd}"
-        proc = await asyncio.create_subprocess_shell(
-            cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE
-        )
-        stdout, stderr = await proc.communicate()
-        if proc.returncode == 0:
-            return {"status": "Upgrade started", "stdout": stdout.decode(), "stderr": stderr.decode()}
-        else:
-            return {"status": "Upgrade failed", "stdout": stdout.decode(), "stderr": stderr.decode()}
-
-    async def verify_firmware_signature(self) -> Dict[str, Any]:
-        """
-        验证固件文件的签名合法性
-        使用 fwtools verify 命令校验 /userdata/update.img 的签名
-        
-        Returns:
-            Dict[str, Any]: 包含验证结果的字典
-                - status: "valid" 或 "invalid" 或 "error"
-                - message: 详细信息
-                - stdout: 命令输出
-                - stderr: 错误输出
-        """
-        try:
-            firmware_path = f"{UPGRADE_DIR}{UPGRADE_FILE}"
-            if not os.path.exists(firmware_path):
-                return {
-                    "status": "error",
-                    "message": "Firmware file does not exist",
-                    "stdout": "",
-                    "stderr": ""
-                }
-            
-            public_key_path = "/etc/firmware/key/public.raw"
-            if not os.path.exists(public_key_path):
-                return {
-                    "status": "error",
-                    "message": "Public key file does not exist",
-                    "stdout": "",
-                    "stderr": ""
-                }
-            
-            cmd = f"fwtools verify {firmware_path} {public_key_path}"
-            get_logger(0).info(f"Verifying firmware signature: {cmd}")
-            proc = await asyncio.create_subprocess_shell(
-                cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, stderr = await proc.communicate()
-            
-            stdout_str = stdout.decode().strip()
-            stderr_str = stderr.decode().strip()
-            
-            if proc.returncode == 0:
-                get_logger(0).info("Firmware signature verification successful")
-                return {
-                    "status": "valid",
-                    "message": "Firmware signature verification successful",
-                    "stdout": stdout_str,
-                    "stderr": stderr_str
-                }
-            else:
-                get_logger(0).error(f"Firmware signature verification failed: {stderr_str}")
-                return {
-                    "status": "invalid",
-                    "message": "Firmware signature verification failed",
-                    "stdout": stdout_str,
-                    "stderr": stderr_str
-                }
-                
-        except Exception as e:
-            get_logger(0).error(f"Error verifying firmware signature: {str(e)}")
-            return {
-                "status": "error",
-                "message": f"Error during firmware signature verification: {str(e)}",
-                "stdout": "",
-                "stderr": ""
-            }
-
-    async def validate_firmware(self) -> Dict[str, Any]:
-        """
-        校验固件文件的有效性
-        使用 check_image_validity 命令校验 /userdata/update.img 文件
-        
-        Returns:
-            Dict[str, Any]: 包含校验结果的字典
-                - status: "valid" 或 "invalid" 或 "error"
-                - message: 详细信息
-                - stdout: 命令输出
-                - stderr: 错误输出
-        """
-        try:
-            # 首先检查固件文件是否存在
-            firmware_path = f"{UPGRADE_DIR}{UPGRADE_FILE}"
-            if not os.path.exists(firmware_path):
-                return {
-                    "status": "error",
-                    "message": "Firmware file does not exist",
-                    "stdout": "",
-                    "stderr": ""
-                }
-            
-            # 执行校验命令
-            cmd = f"check_image_validity {firmware_path}"
-            proc = await asyncio.create_subprocess_shell(
-                cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE
-            )
-            stdout, stderr = await proc.communicate()
-            
-            stdout_str = stdout.decode().strip()
-            stderr_str = stderr.decode().strip()
-            
-            if proc.returncode == 0:
-                return {
-                    "status": "valid",
-                    "message": "Firmware validation successful",
-                    "stdout": stdout_str,
-                    "stderr": stderr_str
-                }
-            else:
-                return {
-                    "status": "invalid",
-                    "message": "Firmware validation failed",
-                    "stdout": stdout_str,
-                    "stderr": stderr_str
-                }
-                
-        except Exception as e:
-            get_logger(0).error(f"Error validating firmware: {str(e)}")
-            return {
-                "status": "error",
-                "message": f"Error during firmware validation: {str(e)}",
-                "stdout": "",
-                "stderr": ""
-            }
