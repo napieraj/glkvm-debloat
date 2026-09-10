@@ -388,6 +388,56 @@ def test_ok__default_origins_is_the_device_fqdn(monkeypatch: Any) -> None:
     assert get_default_origins() == ("https://kvm-pve2.oskar.co",)
 
 
+@pytest.mark.asyncio
+async def test_fail__origin_is_matched_exactly_not_by_prefix(tmp_path: pathlib.Path) -> None:
+    """
+    A pinned origin must not admit anything that merely starts with it.
+
+    The three negative origin cases in test_fail__assertion_rejections are all
+    rejected by a prefix match too, so none of them separates exact membership
+    from `startswith`. Without this case, relaxing the check to a prefix match
+    -- the obvious-looking accommodation for a port or a path suffix -- ships
+    green while admitting an attacker-controlled host under a longer name.
+    """
+
+    key = SoftKey(str(tmp_path))
+    plugin = _enrolled(tmp_path, key)
+    challenge = plugin.make_challenge()["publicKey"]["challenge"]
+    with pytest.raises(WebAuthnError):
+        await plugin.verify_assertion(**_assert_args(
+            key, challenge, origin=(_ORIGIN + ".attacker.test")))
+
+
+@pytest.mark.asyncio
+async def test_fail__unconfigured_origins_still_pins_to_the_device(
+    tmp_path: pathlib.Path,
+    monkeypatch: Any,
+) -> None:
+    """
+    The default path is the one a shipped device takes, and it must pin too.
+
+    `origins` defaults to [] and nothing in configs/ sets it, so a real device
+    falls through to get_default_origins(). Every other test in this file
+    configures origins explicitly (see _enrolled), which left the fallback
+    exercised only in isolation and never through verify_assertion -- so
+    neutering it did not redden anything.
+    """
+
+    monkeypatch.setattr("socket.getfqdn", (lambda: "kvm-pve1.oskar.co"))
+    key = SoftKey(str(tmp_path))
+    plugin = _enrolled(tmp_path, key, origins=[])
+    challenge = plugin.make_challenge()["publicKey"]["challenge"]
+
+    # The device's own origin is accepted through the fallback ...
+    await plugin.verify_assertion(**_assert_args(key, challenge, origin=_ORIGIN))
+
+    # ... and a sibling under the same RP ID is not.
+    challenge = plugin.make_challenge()["publicKey"]["challenge"]
+    with pytest.raises(WebAuthnError):
+        await plugin.verify_assertion(**_assert_args(
+            key, challenge, origin="https://evil.oskar.co"))
+
+
 # ===== challenges =====
 def test_fail__challenge_needs_rp_id(tmp_path: pathlib.Path) -> None:
     plugin = _make_plugin(file=str(tmp_path / "webauthn.json"))
