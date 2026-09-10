@@ -47,6 +47,24 @@
       "id": "unsafe-directory-entry"
     },
     {
+      "blob": "unsafe-bytecode-cache.tar",
+      "code": "bundle.unsafe_entry",
+      "description": "Invariant 4: a __pycache__ .pyc whose header matches its .py is executed instead of the source, so the bundle would carry code the .py does not contain. Readback cannot catch it -- the .pyc is in the bundle the server holds, so both sides hash the same tree and agree.",
+      "id": "unsafe-bytecode-cache"
+    },
+    {
+      "blob": "unsafe-native-extension.tar",
+      "code": "bundle.unsafe_entry",
+      "description": "Invariant 4: CPython resolves EXTENSION_SUFFIXES before SOURCE_SUFFIXES, so a .so beside a .py of the same module name is imported instead of it.",
+      "id": "unsafe-native-extension"
+    },
+    {
+      "blob": "unsafe-sourceless-bytecode.tar",
+      "code": "bundle.unsafe_entry",
+      "description": "Invariant 4: a bare .pyc is loadable by SourcelessFileLoader, so it carries executable code with no source to audit.",
+      "id": "unsafe-sourceless-bytecode"
+    },
+    {
       "blob": "malformed-not-a-tar.tar",
       "code": "bundle.malformed",
       "description": "Not a readable ustar archive.",

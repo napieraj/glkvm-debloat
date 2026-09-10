@@ -591,6 +591,25 @@ bcase("unsafe-directory-entry",
       "Directories are implied by file paths and are not carried as entries, so "
       "their modes cannot be smuggled in.",
       raw_tar([(directory("plugins/ugpio/"), None)]), "bundle.unsafe_entry")
+bcase("unsafe-bytecode-cache",
+      "Invariant 4: a __pycache__ .pyc whose header matches its .py is executed "
+      "instead of the source, so the bundle would carry code the .py does not "
+      "contain. Readback cannot catch it -- the .pyc is in the bundle the server "
+      "holds, so both sides hash the same tree and agree.",
+      raw_tar([(reg("plugins/ugpio/acme_relay.py", 2), b"x\n"),
+               (reg("plugins/ugpio/__pycache__/acme_relay.cpython-311.pyc", 2), b"x\n")]),
+      "bundle.unsafe_entry")
+bcase("unsafe-native-extension",
+      "Invariant 4: CPython resolves EXTENSION_SUFFIXES before SOURCE_SUFFIXES, so "
+      "a .so beside a .py of the same module name is imported instead of it.",
+      raw_tar([(reg("plugins/ugpio/acme_relay.py", 2), b"x\n"),
+               (reg("plugins/ugpio/acme_relay.so", 2), b"x\n")]),
+      "bundle.unsafe_entry")
+bcase("unsafe-sourceless-bytecode",
+      "Invariant 4: a bare .pyc is loadable by SourcelessFileLoader, so it carries "
+      "executable code with no source to audit.",
+      raw_tar([(reg("plugins/ugpio/acme_relay.pyc", 2), b"x\n")]),
+      "bundle.unsafe_entry")
 bcase("malformed-not-a-tar", "Not a readable ustar archive.",
       b"this is not a tar archive at all, not even close\n", "bundle.malformed")
 
