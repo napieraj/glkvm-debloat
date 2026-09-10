@@ -251,26 +251,43 @@ def test_the_import_precedence_this_refusal_rests_on() -> None:
 
 
 # ===== gaps an audit found: checks no mutation reddened =====
-def test_require_entry_matches_the_whole_path_not_a_suffix() -> None:
+def test_require_entry_matches_the_whole_path_exactly() -> None:
     """
-    Relaxing `f.path == manifest.entry` to `endswith` left the suite green.
+    The declared entry must be matched whole, not by any substring relation.
 
-    Exploit it closes: a bundle whose only member is
-    'evil/plugins/ugpio/acme_relay.py' satisfies a manifest declaring
-    entry='plugins/ugpio/acme_relay.py'. The declared module is then not the
-    one on disk, and require_entry is the only thing asserting the bundle
-    carries what the manifest names.
+    A first version of this test used a single decoy and closed `endswith`
+    only; `startswith` and `in` both stayed green. Each decoy below defeats a
+    different relaxation, and none of them is the declared file:
+
+      evil/plugins/ugpio/acme_relay.py   endswith
+      plugins/ugpio/acme_relay.pyzzz     startswith
+      xx/plugins/ugpio/acme_relay.pyzz   in / contains
+
+    require_entry is the only thing asserting the bundle carries the module the
+    manifest names, so a relation weaker than equality means the declared
+    module need not be the one on disk.
     """
 
     manifest = parse_manifest(canonical_json(_REFERENCE_MANIFEST))
-    decoy = [TreeFile(path="evil/" + _REFERENCE_MANIFEST["entry"], data=b"x")]
-    with pytest.raises(RefusalError) as caught:
-        require_entry(decoy, manifest)
-    assert code_of(caught.value) == CODE_BUNDLE_ENTRY_MISSING
+    entry = _REFERENCE_MANIFEST["entry"]
+    decoys = [
+        TreeFile(path="evil/" + entry, data=b"x"),
+        TreeFile(path=entry + "zzz", data=b"x"),
+        TreeFile(path="xx/" + entry + "zz", data=b"x"),
+    ]
 
-    # And the honest case still passes, so a check that refused everything
-    # would not satisfy this test either.
-    require_entry([TreeFile(path=_REFERENCE_MANIFEST["entry"], data=b"x")], manifest)
+    for decoy in decoys:
+        with pytest.raises(RefusalError) as caught:
+            require_entry([decoy], manifest)
+        assert code_of(caught.value) == CODE_BUNDLE_ENTRY_MISSING
+
+    # All three together must still refuse -- a check satisfied by any one of
+    # them would otherwise pass on the set.
+    with pytest.raises(RefusalError):
+        require_entry(decoys, manifest)
+
+    # And the honest member is accepted, so refusing everything fails too.
+    require_entry(decoys + [TreeFile(path=entry, data=b"x")], manifest)
 
 
 def test_readback_refuses_a_symlink_under_the_placement_root(tmp_path: pathlib.Path) -> None:

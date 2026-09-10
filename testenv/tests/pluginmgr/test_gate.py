@@ -98,48 +98,52 @@ def test_gate_without_verifier_refuses() -> None:
 
 
 # ===== a gap an audit found: the check no mutation reddened =====
-def test_hash_only_compares_the_whole_digest() -> None:
+@pytest.mark.parametrize("differ_at", [0, 1, 7, 31, 62, 63])
+def test_hash_only_compares_the_whole_digest(differ_at: int) -> None:
     """
-    Truncating the comparison to `got[:2] != manifest.payload.sha256[:2]` left
-    the suite green, and so did [:8].
+    The payload-hash comparison must be whole, not a prefix.
 
-    hash-only is the entire authenticity story at the v1 floor -- integrity
-    without authenticity is the whole tier -- so a comparison that only has to
-    agree on a prefix is the tier failing silently. Every other case in this
-    file uses a payload whose digest differs from the first character, which
-    is why none of them separated a full comparison from a prefix one.
+    A first version of this test searched for a payload whose digest shared a
+    leading BYTE with the honest one. That closed a [:2] truncation and nothing
+    else -- [:4], [:8], [:16] and [:32] all stayed green, including the [:8]
+    case named as surviving in the audit that prompted the test. Finding a
+    payload that collides on 8 or 32 characters is not feasible by search, so
+    the mutation has to come from the other side: hold the payload fixed and
+    perturb the DECLARED digest at one position.
 
-    The two payloads below are searched for a SHARED leading hex byte, so this
-    test is red under a [:2] truncation rather than merely lucky.
+    Differing only at index 63 defeats every `[:n]` for n < 64 at once; the
+    earlier positions guard a comparison that samples the middle or the end
+    rather than the front.
+
+    hash-only is the whole of authenticity at the v1 floor, so a comparison
+    that need only agree on part of the digest is the tier failing silently.
     """
 
-    honest = b"the payload the manifest describes"
-    honest_sha = hashlib.sha256(honest).hexdigest()
+    payload = b"the payload the manifest describes"
+    honest = hashlib.sha256(payload).hexdigest()
 
-    forged = None
-    for i in range(200000):
-        candidate = b"forged-%d" % i
-        if hashlib.sha256(candidate).hexdigest()[:2] == honest_sha[:2]:
-            forged = candidate
-            break
-    assert forged is not None, "no colliding prefix found; widen the search"
-    forged_sha = hashlib.sha256(forged).hexdigest()
-    assert forged_sha != honest_sha
-    assert forged_sha[:2] == honest_sha[:2]
+    # Same length, still valid lowercase hex, differing at exactly one index.
+    chars = list(honest)
+    chars[differ_at] = "0" if chars[differ_at] != "0" else "1"
+    declared = "".join(chars)
+    assert declared != honest and len(declared) == 64
 
-    manifest = parse_manifest(canonical_json({
-        "entry": "plugins/ugpio/acme_relay.py",
-        "firmware_compat": ">=1.10.0",
-        "model_compat": ">=rm1pe",
-        "name": "acme_relay",
-        "payload": {"sha256": honest_sha, "size": len(honest)},
-        "revision": 1,
-        "runtime": "device",
-        "signature": {"entries": [], "model": "hash-only"},
-        "type": "ugpio",
-    }))
+    def manifest_for(sha: str):
+        return parse_manifest(canonical_json({
+            "entry": "plugins/ugpio/acme_relay.py",
+            "firmware_compat": ">=1.10.0",
+            "model_compat": ">=rm1pe",
+            "name": "acme_relay",
+            "payload": {"sha256": sha, "size": len(payload)},
+            "revision": 1,
+            "runtime": "device",
+            "signature": {"entries": [], "model": "hash-only"},
+            "type": "ugpio",
+        }))
 
-    resolve("hash-only").verify(manifest, honest)          # the honest payload passes
+    # The honest digest verifies, so a comparison refusing everything fails too.
+    resolve("hash-only").verify(manifest_for(honest), payload)
+
     with pytest.raises(VerifyError) as caught:
-        resolve("hash-only").verify(manifest, forged)      # a prefix match does not
+        resolve("hash-only").verify(manifest_for(declared), payload)
     assert code_of(caught.value) == CODE_PAYLOAD_HASH_MISMATCH
