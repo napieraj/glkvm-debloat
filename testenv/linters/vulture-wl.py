@@ -57,3 +57,17 @@ Dumper.ignore_aliases
 
 _auth_server_port_fixture
 _test_user
+
+# Plugin foundation: refusal codes for behaviour that lands with the device
+# half (placement, loading, runtime-tier policy) and for the server-side
+# unsolicited-fetch case. They are defined because contract/plugins/errors.md
+# defines them, and tests/pluginmgr/test_errors.py fails if the two ever
+# disagree -- so these are contract surface, not dead names.
+CODE_WIRE_UNSOLICITED
+CODE_POLICY_ROLLBACK_REFUSED
+CODE_POLICY_WRONG_RUNTIME
+CODE_POLICY_INCOMPATIBLE_MODEL
+CODE_POLICY_INCOMPATIBLE_FIRMWARE
+CODE_INSTALL_LOAD_FAILED
+CODE_INSTALL_PLACE_FAILED
+CODE_INSTALL_READBACK_MISMATCH

@@ -1,0 +1,103 @@
+{
+  "cases": [
+    {
+      "description": "An empty tree hashes to the sha256 of the empty string.",
+      "files": [],
+      "id": "empty",
+      "tree_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    {
+      "description": "One file.",
+      "files": [
+        {
+          "content_b64": "eAo=",
+          "path": "plugins/ugpio/a.py"
+        }
+      ],
+      "id": "single-file",
+      "tree_sha256": "4642b6a6d59a660a7858d4ded17ac80bd91927d6cda5eca6168e6470cf4eac77"
+    },
+    {
+      "description": "The reference bundle's placed tree.",
+      "files": [
+        {
+          "content_b64": "IyBhY21lIHJlbGF5IHBsdWdpbgpjbGFzcyBQbHVnaW46CiAgICBwYXNzCg==",
+          "path": "plugins/ugpio/acme_relay.py"
+        },
+        {
+          "content_b64": "IyBoZWxwZXIKVkVSU0lPTiA9IDEK",
+          "path": "plugins/ugpio/acme_relay_util.py"
+        }
+      ],
+      "id": "reference-plugin",
+      "tree_sha256": "0dc0cbbe575e10deb6b9e507498b632e3b9a4b294c2d173a5a40c11f804862ae"
+    },
+    {
+      "description": "Paths sort bytewise, not by locale: uppercase (0x41+) sorts before '_' (0x5f), which sorts before lowercase (0x61+).",
+      "files": [
+        {
+          "content_b64": "Yg==",
+          "path": "plugins/ugpio/b.py"
+        },
+        {
+          "content_b64": "QQ==",
+          "path": "plugins/ugpio/A.py"
+        },
+        {
+          "content_b64": "eg==",
+          "path": "plugins/ugpio/_z.py"
+        },
+        {
+          "content_b64": "YQ==",
+          "path": "plugins/ugpio/a.py"
+        }
+      ],
+      "id": "sort-order-is-bytewise",
+      "tree_sha256": "7b7dbdba3d8bed65154fce51a03b45c88c870e06676e6f8b44f3b3e728d54ef6"
+    },
+    {
+      "description": "Nested directories are represented by path only; directories are not hashed.",
+      "files": [
+        {
+          "content_b64": "eQ==",
+          "path": "plugins/hid/x/y.py"
+        },
+        {
+          "content_b64": "eA==",
+          "path": "plugins/hid/x.py"
+        }
+      ],
+      "id": "nested-paths",
+      "tree_sha256": "ecd7a850ee95938c80f1cb288b7d0fe924745d99013bdb26d2b90bdb2e206099"
+    },
+    {
+      "description": "Path is part of the hash, so identical content at different paths differs.",
+      "files": [
+        {
+          "content_b64": "c2FtZQ==",
+          "path": "plugins/atx/p.py"
+        },
+        {
+          "content_b64": "c2FtZQ==",
+          "path": "plugins/atx/q.py"
+        }
+      ],
+      "id": "same-content-different-paths",
+      "tree_sha256": "8f4c77a04bd9d6400a158ec7d1c9f9ba7529167dc26dc9e6a64b84635ca531e2"
+    },
+    {
+      "description": "A zero-byte file still contributes its path and the hash of no bytes.",
+      "files": [
+        {
+          "content_b64": "",
+          "path": "plugins/msd/empty.py"
+        }
+      ],
+      "id": "empty-file",
+      "tree_sha256": "2894547e3142d8b0dfa89aead050dbe243cb54ddc6bc2c778c036764f949e006"
+    }
+  ],
+  "description": "Canonical tree hash vectors. Both sides must compute these identically or every readback comparison is meaningless. Algorithm: for each regular file, sha256_hex(content) + two spaces + POSIX relative path + newline; concatenate in bytewise path order; sha256_hex the result.",
+  "protocol_version": 2,
+  "vectors_version": 1
+}

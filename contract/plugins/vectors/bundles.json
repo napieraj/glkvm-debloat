@@ -1,0 +1,59 @@
+{
+  "cases": [
+    {
+      "blob": "reference-bundle.tar",
+      "description": "The reference bundle unpacks to the reference tree.",
+      "files": [
+        {
+          "path": "plugins/ugpio/acme_relay.py",
+          "sha256": "b4742dc3926625c6d048e187972be54f2879d2baa3e5f17ce848c351fa951d49"
+        },
+        {
+          "path": "plugins/ugpio/acme_relay_util.py",
+          "sha256": "3ee85326c2d02360e9164fb26c3e48aad83e61727130ddda5d84443852317faf"
+        }
+      ],
+      "id": "valid-reference",
+      "tree_sha256": "0dc0cbbe575e10deb6b9e507498b632e3b9a4b294c2d173a5a40c11f804862ae"
+    },
+    {
+      "blob": "unsafe-absolute-path.tar",
+      "code": "bundle.unsafe_path",
+      "description": "Invariant 1: an absolute entry path would place outside the loader root.",
+      "id": "unsafe-absolute-path"
+    },
+    {
+      "blob": "unsafe-traversal.tar",
+      "code": "bundle.unsafe_path",
+      "description": "Invariant 1: '..' escapes the loader root.",
+      "id": "unsafe-traversal"
+    },
+    {
+      "blob": "unsafe-backslash.tar",
+      "code": "bundle.unsafe_path",
+      "description": "Backslash separators are refused rather than normalised.",
+      "id": "unsafe-backslash"
+    },
+    {
+      "blob": "unsafe-symlink.tar",
+      "code": "bundle.unsafe_entry",
+      "description": "A symlink can redirect a later write outside the root, so v1 bundles carry regular files only.",
+      "id": "unsafe-symlink"
+    },
+    {
+      "blob": "unsafe-directory-entry.tar",
+      "code": "bundle.unsafe_entry",
+      "description": "Directories are implied by file paths and are not carried as entries, so their modes cannot be smuggled in.",
+      "id": "unsafe-directory-entry"
+    },
+    {
+      "blob": "malformed-not-a-tar.tar",
+      "code": "bundle.malformed",
+      "description": "Not a readable ustar archive.",
+      "id": "malformed-not-a-tar"
+    }
+  ],
+  "description": "Bundle unpacking vectors. Read vectors/blobs/<blob>. A case with 'code' must be refused with that code before anything is written. A valid case must unpack to exactly 'files' and hash to 'tree_sha256'. These checks are structural and run regardless of which Verifier is configured — they are what makes a noop verifier survivable.",
+  "protocol_version": 2,
+  "vectors_version": 1
+}

@@ -53,6 +53,25 @@ def _make_service_kwargs(path: str) -> dict:
     return make_config({"file": path}, scheme)._unpack()
 
 
+@contextlib.contextmanager
+def _advance(manager: AuthManager, seconds: int):  # type: ignore
+    """
+    Advances the manager's clock. __get_now_ts() reads time.monotonic(), so
+    expiry is testable without sleeping; the name mangling is the price of
+    reaching a private method, and is preferable to a real delay in a suite
+    that otherwise runs in a third of a second.
+    """
+
+    attr = "_AuthManager__get_now_ts"
+    original = getattr(manager, attr)
+    base = original()
+    setattr(manager, attr, (lambda: base + seconds))
+    try:
+        yield
+    finally:
+        setattr(manager, attr, original)
+
+
 @contextlib.asynccontextmanager
 async def _get_configured_manager(
     unauth_paths: list[str],
@@ -368,3 +387,57 @@ async def test_ok__sysprep_reaches_the_auth_services(tmpdir) -> None:  # type: i
     # it on startup; the base hook is a no-op and must not raise.
     async with _get_configured_manager([], path) as manager:
         await manager.sysprep()
+
+
+# =====
+@pytest.mark.asyncio
+async def test_ok__session_expires(tmpdir) -> None:  # type: ignore
+    """
+    Sessions actually expire.
+
+    This was not covered by any of the four migrated tests: disabling the
+    expiry comparison in AuthManager.check left every one of them green, so
+    a token that outlived its expiry would have shipped unnoticed. Time is
+    driven rather than slept on -- __get_now_ts reads time.monotonic(), so the
+    test advances it instead of waiting.
+    """
+
+    path = os.path.abspath(str(tmpdir.join("htpasswd")))
+    htpasswd = passlib.apache.HtpasswdFile(path, new=True)
+    htpasswd.set_password("admin", "pass")
+    htpasswd.save()
+
+    async with _get_configured_manager([], path, expire=100) as manager:
+        (token, _) = await manager.login("admin", "pass", 0)
+        assert token is not None
+        assert manager.check(token) == "admin"
+
+        # Just inside the window.
+        with _advance(manager, 99):
+            assert manager.check(token) == "admin"
+
+        # Past it.
+        with _advance(manager, 101):
+            assert manager.check(token) is None
+
+
+@pytest.mark.asyncio
+async def test_ok__zero_expire_never_expires(tmpdir) -> None:  # type: ignore
+    """
+    expire=0 means no expiry, not immediate expiry.
+
+    The off-by-one that would make a disabled expiry behave as an expired one
+    is silent: every other test uses a non-zero window, so nothing else here
+    would go red.
+    """
+
+    path = os.path.abspath(str(tmpdir.join("htpasswd")))
+    htpasswd = passlib.apache.HtpasswdFile(path, new=True)
+    htpasswd.set_password("admin", "pass")
+    htpasswd.save()
+
+    async with _get_configured_manager([], path, expire=0) as manager:
+        (token, _) = await manager.login("admin", "pass", 0)
+        assert token is not None
+        with _advance(manager, 10 ** 6):
+            assert manager.check(token) == "admin"

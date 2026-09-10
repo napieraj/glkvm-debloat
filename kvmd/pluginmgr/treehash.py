@@ -20,59 +20,38 @@
 # ========================================================================== #
 
 
-import sys
-import types
-
-from .logging import get_logger
-
-try:
-    import user_agents as _user_agents
-except ImportError:
-    _user_agents = None  # type: ignore
-
-from .logging import get_logger
+import hashlib
+import dataclasses
 
 
-MODEL_PATH = "/proc/gl-hw-info/model"
-
-def get_model_name() -> str:
-    try:
-        with open(MODEL_PATH, "r") as f:
-            return f.read().strip()
-    except Exception as e:
-        get_logger(0).warning(f"Failed to read model info, using default value rm10: {str(e)}")
-        return "rm10"
+# =====
+@dataclasses.dataclass(frozen=True)
+class TreeFile:
+    path: str  # POSIX-relative to the plugin root, no leading "./"
+    data: bytes
 
 
-_MOBILE_APP_UA = {"AndroidMobileApp", "IOSMobileApp"}
-_DESKTOP_APP_UA = {"MacDesktopApp", "WinDesktopApp"}
-
-
-def parse_user_agent(ua_string: str) -> tuple[str, str]:
-    """解析 User-Agent 字符串，返回 (device_type, browser)。
-
-    device_type: "Mobile" | "Tablet" | "PC" | "Unknown"
-    browser:     浏览器名称，如 "Chrome"、"Safari"；命中自定义 App UA 时为匹配的 marker；
-                 解析失败时为 "Unknown"
+def tree_hash(files: list[TreeFile]) -> str:
     """
-    for marker in _MOBILE_APP_UA:
-        if marker in ua_string:
-            return ("Mobile", marker)
-    for marker in _DESKTOP_APP_UA:
-        if marker in ua_string:
-            return ("PC", marker)
+    The canonical tree hash, used by readback and by contract-sync checking.
 
-    if _user_agents is None:
-        return ("Unknown", "Unknown")
+    Both sides must compute this identically or every readback comparison is
+    meaningless, which is why vectors/treehash.json exists.
 
-    ua = _user_agents.parse(ua_string)
-    if ua.is_mobile:
-        device_type = "Mobile"
-    elif ua.is_tablet:
-        device_type = "Tablet"
-    elif ua.is_pc:
-        device_type = "PC"
-    else:
-        device_type = "Unknown"
-    browser = ua.browser.family or "Unknown"
-    return (device_type, browser)
+        for each regular file:
+            sha256_hex(content) + "  " + path + "\\n"   (two spaces, as sha256sum)
+        concatenated in bytewise path order, then sha256_hex of the whole.
+
+    Directories, symlinks, modes and timestamps are not hashed and are not
+    permitted in a v1 bundle, so there is nothing left to disagree about.
+
+    Sorting is on the UTF-8 bytes, not on str: Python's str ordering is by code
+    point, which diverges from bytewise ordering above U+007F. Paths are
+    restricted to printable ASCII, so the two agree today -- sorting on bytes
+    keeps that true if the restriction is ever relaxed.
+    """
+
+    lines = b""
+    for file in sorted(files, key=(lambda f: f.path.encode("utf-8"))):
+        lines += (hashlib.sha256(file.data).hexdigest() + "  " + file.path + "\n").encode("utf-8")
+    return hashlib.sha256(lines).hexdigest()

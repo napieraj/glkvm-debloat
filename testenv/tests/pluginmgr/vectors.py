@@ -20,59 +20,40 @@
 # ========================================================================== #
 
 
-import sys
-import types
-
-from .logging import get_logger
-
-try:
-    import user_agents as _user_agents
-except ImportError:
-    _user_agents = None  # type: ignore
-
-from .logging import get_logger
+import os
+import json
+import base64
 
 
-MODEL_PATH = "/proc/gl-hw-info/model"
+# =====
+# The conformance vectors are the shared test contract. Both repos vendor the
+# identical contract/plugins tree and run their own suite against it, so a
+# divergence between the Python and Go implementations is caught by each repo's
+# own tests rather than at integration time.
 
-def get_model_name() -> str:
-    try:
-        with open(MODEL_PATH, "r") as f:
-            return f.read().strip()
-    except Exception as e:
-        get_logger(0).warning(f"Failed to read model info, using default value rm10: {str(e)}")
-        return "rm10"
-
-
-_MOBILE_APP_UA = {"AndroidMobileApp", "IOSMobileApp"}
-_DESKTOP_APP_UA = {"MacDesktopApp", "WinDesktopApp"}
+CONTRACT_PATH = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", "..", "contract", "plugins"))
+VECTORS_PATH = os.path.join(CONTRACT_PATH, "vectors")
 
 
-def parse_user_agent(ua_string: str) -> tuple[str, str]:
-    """解析 User-Agent 字符串，返回 (device_type, browser)。
+def load_vectors(name: str) -> dict:
+    with open(os.path.join(VECTORS_PATH, name), "rb") as file:
+        return json.loads(file.read())
 
-    device_type: "Mobile" | "Tablet" | "PC" | "Unknown"
-    browser:     浏览器名称，如 "Chrome"、"Safari"；命中自定义 App UA 时为匹配的 marker；
-                 解析失败时为 "Unknown"
-    """
-    for marker in _MOBILE_APP_UA:
-        if marker in ua_string:
-            return ("Mobile", marker)
-    for marker in _DESKTOP_APP_UA:
-        if marker in ua_string:
-            return ("PC", marker)
 
-    if _user_agents is None:
-        return ("Unknown", "Unknown")
+def load_cases(name: str) -> list[dict]:
+    cases = load_vectors(name)["cases"]
+    assert cases, f"no vectors loaded from {name}"
+    return cases
 
-    ua = _user_agents.parse(ua_string)
-    if ua.is_mobile:
-        device_type = "Mobile"
-    elif ua.is_tablet:
-        device_type = "Tablet"
-    elif ua.is_pc:
-        device_type = "PC"
-    else:
-        device_type = "Unknown"
-    browser = ua.browser.family or "Unknown"
-    return (device_type, browser)
+
+def load_blob(name: str) -> bytes:
+    with open(os.path.join(VECTORS_PATH, "blobs", name), "rb") as file:
+        return file.read()
+
+
+def b64(text: str) -> bytes:
+    return base64.b64decode(text)
+
+
+def case_ids(cases: list[dict]) -> list[str]:
+    return [case["id"] for case in cases]
