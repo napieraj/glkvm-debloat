@@ -39,6 +39,20 @@ import ast
 #
 # This is the same shape as the guards this project keeps finding vacuous: the
 # thing that would notice was scoped somewhere it could not see.
+#
+# NOT ALL FOUR ARE THE SAME KIND OF FIX, and this test deliberately forces the
+# question. kvmd.apps.kvmd.switch has three in-tree importers and is
+# unambiguous. kvmd.apps.localhid, kvmd.apps.media and kvmd.apps.swctl have
+# ZERO in-tree importers and no console_scripts entry -- but each has a
+# __main__.py and a main(), so each is a standalone app meant to be started as
+# `python -m kvmd.apps.<name>`. Per rule 12, that a search finds no caller here
+# says nothing about whether GL's init scripts start them on the device.
+#
+# They are declared rather than deleted because the failure modes are not
+# symmetric: shipping an unused package costs bytes, while not shipping a used
+# one breaks an installed daemon. If the bench pass shows nothing starts them,
+# rule 5 says gut them -- and then this test is what makes the deletion
+# complete rather than partial.
 _ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 

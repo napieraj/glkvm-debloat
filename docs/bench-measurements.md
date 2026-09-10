@@ -103,3 +103,24 @@ design.
 
 _Unanswered. Fill in with the date, the device model, the firmware version, and
 the raw output._
+
+## 5. Does anything on the device start `localhid`, `media` or `swctl`?
+
+`kvmd/apps/localhid` (591 lines), `kvmd/apps/media` (273) and `kvmd/apps/swctl`
+(197) have **zero importers in either tree** and no `console_scripts` entry, but
+each carries a `__main__.py` and a `main()` — so each is a standalone app meant
+to be started as `python -m kvmd.apps.<name>`. Rule 12: that no caller exists
+here says nothing about whether GL's init scripts start them on the unit.
+
+**Procedure:** on a device, `ps` for the three module names, then
+`grep -rE 'localhid|apps\.media|swctl' /etc/init.d/ /etc/rc.d/ /usr/bin/ 2>/dev/null`.
+
+**What it decides:** if nothing starts them they are strip candidates under
+rule 5 (gut, not mask) — roughly 1,061 lines and three packages out of a debloat
+fork. If something does, they are load-bearing and `setup.py` must keep shipping
+them. They are declared in `packages` today because the failure modes are not
+symmetric: an unused package costs bytes, a missing used one breaks the daemon.
+
+Contrast `kvmd/apps/kvmd/switch` (3,265 lines), which has three in-tree
+importers including an unconditional `from .switch import Switch` — that one
+needed no device answer and its omission from `packages` was a live bug.
