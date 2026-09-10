@@ -46,7 +46,6 @@ GET /system/get_param auth=True usc=True exe=-
 GET /system/gui_get_param auth=True usc=True exe=/usr/sbin/gl_kvm_gui
 GET /system/ntp auth=True usc=True exe=-
 GET /system/otg_functions auth=True usc=True exe=-
-GET /system/ssh_key auth=True usc=True exe=-
 GET /system/ssl_cert auth=True usc=True exe=-
 GET /system/time auth=True usc=True exe=-
 GET /system/timezone/list auth=True usc=True exe=-
@@ -124,7 +123,6 @@ POST /system/set_firewall_config auth=True usc=True exe=-
 POST /system/set_hostname auth=True usc=True exe=-
 POST /system/set_network_config auth=True usc=True exe=-
 POST /system/set_param auth=True usc=True exe=-
-POST /system/ssh_key auth=True usc=True exe=-
 POST /system/ssl_cert auth=True usc=True exe=-
 POST /system/time auth=True usc=True exe=-
 POST /system/timezone auth=True usc=True exe=-

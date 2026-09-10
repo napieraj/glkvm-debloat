@@ -98,7 +98,19 @@ modes to match. The paired `GET` returns the current file. Any authenticated cal
 obtains permanent root SSH access, bypassing certificate authentication, any CA
 policy, and any intent to keep key material off the device.
 
-*fork-only · verified · `api/system.py:1651, 1673–1690`*
+**FIXED on this branch — both handlers deleted.** `GET` and `POST
+/system/ssh_key` are gone (53 lines, `api/system.py:1651-1703` as found), and
+`authorized_keys` now appears nowhere in the tree. A pure deletion with no
+callers, as this audit's own recommendation said: there is no legitimate caller on
+a device where SSH access is certificate-based.
+
+Note what this does NOT do: it stops the device from WRITING root's
+`authorized_keys`, and it cannot remove a key an earlier firmware already wrote.
+A unit that ran the vulnerable route may still carry an attacker's key in
+`/root/.ssh/authorized_keys`, and no source-level change can see that — see the
+operator action below.
+
+*fork-only · verified · `api/system.py:1651, 1673–1690` (as found); deleted on this branch*
 
 ### CRITICAL — A GET request factory-resets the device
 

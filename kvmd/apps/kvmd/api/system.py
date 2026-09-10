@@ -1648,59 +1648,6 @@ class SystemApi:
 
         return bool(re.match(pattern, hostname))
 
-    @exposed_http("GET", "/system/ssh_key")
-    async def get_ssh_key_handler(self, request: Request) -> Response:
-        """获取SSH公钥"""
-        try:
-            ssh_key_path = "/root/.ssh/authorized_keys"
-
-            if os.path.exists(ssh_key_path):
-                with open(ssh_key_path, "r") as f:
-                    ssh_key = f.read()
-            else:
-                ssh_key = ""
-
-            return make_json_response({
-                "success": True,
-                "ssh_key": ssh_key
-            })
-
-        except Exception as e:
-            self._logger.error(f"Error getting SSH key: {e}")
-            return make_json_exception(BadRequestError(f"Error getting SSH key: {str(e)}"), 502)
-
-    @exposed_http("POST", "/system/ssh_key")
-    async def set_ssh_key_handler(self, request: Request) -> Response:
-        """设置SSH公钥"""
-        try:
-            # 从请求体读取SSH公钥
-            ssh_key = await request.text()
-
-            # 创建.ssh目录（如果不存在）
-            ssh_dir = "/root/.ssh"
-            os.makedirs(ssh_dir, mode=0o700, exist_ok=True)
-
-            # 写入authorized_keys文件
-            ssh_key_path = os.path.join(ssh_dir, "authorized_keys")
-            with open(ssh_key_path, "w") as f:
-                f.write(ssh_key)
-
-            # 设置正确的权限
-            os.chmod(ssh_key_path, 0o600)
-
-            # 同步到磁盘
-            await run_shell("sync")
-
-            self._logger.info(f"Successfully updated SSH key at {ssh_key_path}")
-
-            return make_json_response({
-                "success": True
-            })
-
-        except Exception as e:
-            self._logger.error(f"Error setting SSH key: {e}")
-            return make_json_exception(BadRequestError(f"Error setting SSH key: {str(e)}"), 502)
-
     async def _restart_nginx(self) -> None:
         """重启 Nginx 服务"""
         try:
