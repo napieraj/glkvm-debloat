@@ -145,9 +145,6 @@
           <table class="kv">
             <tr>
               <td class="value">Runtime settings &amp; tools</td>
-              <td class="feature-disabled" id="system-tool-webterm">
-                <button class="small" data-force-hide-menu data-show-window="webterm-window">&bull; Term</button>
-              </td>
               <td id="system-tool-about">
                 <button class="small" data-force-hide-menu data-show-window="about-window">&bull; About</button>
               </td>
@@ -3024,19 +3021,6 @@
         </div><br>
         <p class="text credits"><a target="_blank" href="https://pikvm.org">PiKVM Project</a>&nbsp; | &nbsp;<a target="_blank" href="https://docs.pikvm.org">Documentation</a>&nbsp; | &nbsp;<a target="_blank" href="https://pikvm.org/support">Support</a></p>
       </div>
-    </div>
-    <div class="window window-resizable" id="webterm-window" data-show-centered style="display: flex; min-width: 720px; min-height: 480px">
-      <div class="window-header">
-        <div class="window-grab">Terminal</div>
-        <div class="window-buttons">
-          <button class="window-button-original">&bull;</button>
-          <button class="window-button-maximize">&#9744;</button>
-          <button class="window-button-close"><b>&times;</b></button>
-          <!-- Терминал глючит из-за зажимаемой клавиши ESC для выхода-->
-          <!-- button(class="window-button-full-screen") &#10530;-->
-        </div>
-      </div>
-      <iframe id="webterm-iframe" src="" style="width: 100%; flex: 1"></iframe>
     </div>
     <ul class="navbar-bg-tips">
       <li class="left">

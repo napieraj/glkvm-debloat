@@ -318,7 +318,6 @@ class SystemApi:
             restart_scripts = [
                 "killall janus",
                 "/etc/init.d/S99gl-pion restart",
-                "/etc/init.d/S80ttyd restart",
             ]
             for script in restart_scripts:
                 try:

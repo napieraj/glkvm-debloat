@@ -418,7 +418,25 @@ The device serves a browser terminal backed by `ttyd`, wired through the UI and
 restarted by the fork's own client-management route. A shell over HTTP defeats any
 policy that SSH access be certificate-only.
 
-*fork-only · verified · `api/system.py:321` · `web/kvm/window-webterm.pug`*
+**FIXED on this branch — the web terminal is gone from the tree.** All of it:
+`web/kvm/window-webterm.pug` and `web/extras/webterm/` deleted, the Term button
+removed from `navbar-system.pug` AND from the generated `index.html` that actually
+ships, the Terminal window markup removed from both, and the `__setStateExtras`
+function plus its dispatch case removed from `web/share/js/kvm/info.js`. On the
+server side the `/etc/init.d/S80ttyd restart` at `api/system.py:321` is gone.
+
+Worth recording what the strip revealed: nothing in `kvmd/` ever reported a
+`webterm` field. The UI read `state.extras.webterm` and no Python in the tree
+set it, so the button's enabled state depended on a value the daemon never sent.
+The shell was reachable regardless — via `ttyd` on its own port — so this was a
+UI that had already drifted from the thing it was fronting.
+
+This removes the client and the fork's own restart hook. It does NOT uninstall
+`ttyd` from a device image built by earlier firmware; the init script
+`S80ttyd` is part of the GL.iNet image, not this repository. On a flashed unit,
+confirm the service is absent or masked — see the operator notes.
+
+*fork-only · verified · `api/system.py:321` · `web/kvm/window-webterm.pug` (as found); stripped on this branch*
 
 ### MEDIUM — Raw video bypasses the API's own access check
 

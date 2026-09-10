@@ -47,7 +47,6 @@ export function Info() {
 				case "health": __setStateHealth(state.health); break;
 				case "fan": __setStateFan(state.fan); break;
 				case "system": __setStateSystem(state.system); break;
-				case "extras": __setStateExtras(state.extras); break;
 			}
 		}
 	};
@@ -245,31 +244,6 @@ export function Info() {
 	var __red = (html) => __colored(false, html);
 	var __colored = (ok, html) => `<font color="${ok ? "green" : "red"}">${html}</font>`;
 	var __commented = (html) => `<span class="code-comment">${html}</span>`;
-
-	var __setStateExtras = function(state) {
-		let show_hook = null;
-		let close_hook = null;
-		let has_webterm = (state.webterm && (state.webterm.enabled || state.webterm.started));
-		if (has_webterm) {
-			let loc = window.location;
-			let base = `${loc.protocol}//${loc.host}${loc.pathname}${ROOT_PREFIX}`;
-			// Tailing slash after state.webterm.path is added to avoid Nginx 301 redirect
-			// when the location doesn't have tailing slash: "foo -> foo/".
-			// Reverse proxy over PiKVM can be misconfigured to handle this.
-			let url = base + state.webterm.path + "/?disableLeaveAlert=true";
-			show_hook = function() {
-				tools.info("Terminal opened: ", url);
-				$("webterm-iframe").src = url;
-			};
-			close_hook = function() {
-				tools.info("Terminal closed");
-				$("webterm-iframe").src = "";
-			};
-		}
-		tools.feature.setEnabled($("system-tool-webterm"), has_webterm);
-		$("webterm-window").show_hook = show_hook;
-		$("webterm-window").close_hook = close_hook;
-	};
 
 	__init__();
 }
