@@ -189,8 +189,13 @@ a password change, a factory reset, and the rest of the debloat. Every other
 finding here is recoverable by reflashing; this one is the mechanism by which
 reflashing is the attack.
 
+Deleting the route closes this for units running this build and for nothing
+else: `skip_verify` is present in shipped firmware on every model, so this is a
+disclosure item too, alongside the rmq1 finding below.
+
 *fork-only · verified · `api/upgrade.py:721–723` (parameter), `:734–736`
-(the skip), as found at 2a2fc1d; deleted on this branch with the route*
+(the skip), as found at 2a2fc1d; deleted on this branch with the route ·
+DISCLOSURE ITEM for stock firmware*
 
 ### HIGH — On one model there was no signature check to bypass at all
 
