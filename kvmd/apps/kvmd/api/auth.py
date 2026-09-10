@@ -190,9 +190,10 @@ async def _check_exe_path(auth_manager: AuthManager, exposed: HttpExposed, req: 
     其他任何方式（包括 HTTP）均被拒绝。
 
     DO NOT REMOVE AS DEAD CODE. The kvmd-lean strip (docs/lean-plan.md steps 3,
-    5 and 6) removes 30 of the 31 gl_kvm_gui-gated routes, leaving one caller
-    (server.py, /hid/ws for gl-pion) and making this look unused. It is slated
-    for REUSE by the beacon -- see that plan's open decision on the primitive.
+    5 and 6) removed all 31 gl_kvm_gui-gated routes, leaving exactly one
+    exe-gated caller (server.py, /hid/ws for gl-pion) and making this look
+    nearly unused. It is slated for REUSE by the beacon -- see that plan's
+    open decision on the primitive.
 
     Note this returns True with NO credential of any kind, so it is an
     authentication mechanism and not a filter: any route carrying

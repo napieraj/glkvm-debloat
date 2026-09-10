@@ -125,6 +125,34 @@ def test_attest__the_unauthenticated_surface_is_small() -> None:
     )
 
 
+def test_attest__one_exe_gated_route_and_it_is_not_the_gui() -> None:
+    # audit.md section 3b. allowed_exe_paths authenticates with NO credential of
+    # any kind -- _check_exe_path returns True on a path match alone -- so every
+    # route carrying it is a route whose only gate is "which binary opened the
+    # socket". The strip (lean-plan steps 3, 5 and 6) took all 31 gl_kvm_gui
+    # callers; the one survivor is gl-pion's HID relay. The primitive itself is
+    # DECIDED-kept for the beacon's local auth path, which is exactly why its
+    # caller count needs a ratchet: a reused primitive regrows callers quietly.
+    exe_gated = [r for r in _routes() if not r.endswith("exe=-")]
+    assert len(exe_gated) == 1, f"the exe-gated surface changed: {exe_gated}"
+    assert "exe=/usr/bin/gl-pion" in exe_gated[0], exe_gated[0]
+    assert not [r for r in exe_gated if "gl_kvm_gui" in r], exe_gated
+
+
+def test_attest__no_gui_process_signalling() -> None:
+    # The GUI coupling was two-way: routes in, SIGUSR1 out of every WS open and
+    # close. Both halves go, or a kvmd with no gui_* routes still shells out to
+    # killall on a binary this build does not ship.
+    #
+    # Matched QUOTED only. Both live forms of the name were string literals --
+    # the killall argument and the allowed_exe_paths entry -- while the three
+    # surviving references are prose in a comment or a docstring, where the name
+    # appears bare. That is what separates a caller from an explanation here,
+    # and why this cannot just grep for the name.
+    hits = _grep(r"[\"']gl_kvm_gui[\"']|/usr/sbin/gl_kvm_gui", "kvmd")
+    assert not hits, f"live gl_kvm_gui references are back: {hits}"
+
+
 # ===== 4. header-trust fixed: identity comes from the socket peer
 class _FakeTransport:
     def __init__(self, sock: Any, peername: Any) -> None:

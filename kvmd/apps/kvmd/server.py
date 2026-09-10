@@ -42,7 +42,6 @@ from ...errors import OperationError
 
 from ... import aiotools
 from ... import aioproc
-from ... import tools
 import asyncio
 
 from ...htserver import HttpExposed
@@ -206,11 +205,7 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
             InitApi(init_manager),
             self.__fingerbot_api,
             WolApi(),
-            SystemApi(
-                get_wss_callback=self._get_wss,
-                close_ws_callback=self._close_ws_by_session,
-                logout_callback=auth_manager.logout,
-            ),
+            SystemApi(),
             InfoApi(info_manager),
             LogApi(log_reader),
             UserGpioApi(user_gpio),
@@ -616,8 +611,6 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
         # 清理所有键盘按键状态，确保新连接时按键都是抬起状态
         self.__hid.clear_events()
         self.__streamer_notifier.notify()
-        # 异步发送 SIGUSR1 信号给 gl_kvm_gui 进程
-        aiotools.create_short_task(tools.run_command("killall", "-SIGUSR1", "gl_kvm_gui", timeout=5))
 
     async def _on_ws_closed(self, ws: WsSession) -> None:
         self.__auth_manager.stop_ws_session(ws.kwargs.get("auth_token", ""))
@@ -625,8 +618,6 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
         # 所以我们在open的时候清理一遍
         self.__hid.clear_events()
         self.__streamer_notifier.notify()
-        # 异步发送 SIGUSR1 信号给 gl_kvm_gui 进程
-        aiotools.create_short_task(tools.run_command("killall", "-SIGUSR1", "gl_kvm_gui", timeout=5))
 
     def __has_stream_clients(self) -> bool:
         return bool(sum(map(

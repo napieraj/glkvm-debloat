@@ -376,11 +376,12 @@ def get_request_unix_credentials(req: BaseRequest) -> (RequestUnixCredentials | 
 def get_request_exe_path(req: BaseRequest) -> (str | None):
     """获取通过 Unix Socket 连接的调用进程的可执行文件路径"""
     # DO NOT REMOVE AS DEAD CODE. The kvmd-lean strip (docs/lean-plan.md steps
-    # 3, 5 and 6) deletes 30 of this primitive's 31 gl_kvm_gui callers, which
-    # will make it look unused. It is slated for REUSE by the beacon's local
-    # authentication path -- see the "Is the executable-path primitive
-    # stripped, or hardened and reused" open decision in that plan, and
-    # docs/audit.md section 3b for why it holds against spoofing.
+    # 3, 5 and 6) deleted all 31 of this primitive's gl_kvm_gui callers, of the
+    # 32 it had at 7b1cdbb. The one survivor is server.py's /hid/ws for
+    # gl-pion, so this now looks nearly unused. It is slated for REUSE by the
+    # beacon's local authentication path -- see the "Is the executable-path
+    # primitive stripped, or hardened and reused" open decision in that plan,
+    # and docs/audit.md section 3b for why it holds against spoofing.
     creds = get_request_unix_credentials(req)
     if creds is None or creds.pid <= 0:
         return None
@@ -543,10 +544,6 @@ class HttpServer:
 
     def _get_wss(self) -> list[WsSession]:
         return list(self.__ws_sessions)
-
-    async def _close_ws_by_session(self, ws: WsSession) -> None:
-        """公开方法：关闭指定的 WebSocket session"""
-        await self.__close_ws(ws)
 
     async def __close_ws(self, ws: WsSession) -> None:
         async with self.__ws_sessions_lock:

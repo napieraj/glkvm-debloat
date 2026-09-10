@@ -33,9 +33,10 @@ from typing import Any
 # removed exactly the routes it was supposed to and no others.
 #
 # Static, not runtime, for three reasons: it needs no server instance and no
-# MODEL_PATH monkeypatch; it catches the one multi-line decorator in the tree
-# (api/upgrade.py, GET /upgrade/gui_compare) that a line-oriented grep misses;
-# and it is honest about conditional registration. SwitchApi is only registered
+# MODEL_PATH monkeypatch; it catches multi-line decorators that a line-oriented
+# grep misses (the tree's only one, api/upgrade.py's GET /upgrade/gui_compare,
+# went with step 6 -- the AST walk stays so a reintroduced one cannot slip the
+# inventory); and it is honest about conditional registration. SwitchApi is only registered
 # when the hardware model is rm4pe (apps/kvmd/__init__.py), so its routes are
 # DECLARED here but are not served on an RM1PE. This file answers "what does
 # the source declare", which is the question a strip needs answered.

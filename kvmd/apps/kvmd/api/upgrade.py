@@ -699,14 +699,6 @@ class UpgradeApi:
         result = await self.__update_engine.compare_versions()
         return make_json_response(result)
 
-    @exposed_http(
-        "GET",
-        "/upgrade/gui_compare",
-        allowed_exe_paths=["/usr/sbin/gl_kvm_gui"],
-    )
-    async def __gui_compare_handler(self, request: web.Request) -> web.Response:
-        return await self.__compare_handler(request)
-    
     @exposed_http("GET", "/upgrade/version")
     async def __version_handler(self, request: web.Request) -> web.Response:
         version = await self.__update_engine.get_local_verion()

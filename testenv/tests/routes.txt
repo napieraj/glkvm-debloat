@@ -1,5 +1,4 @@
 DELETE /streamer/snapshot auth=True usc=True exe=-
-DELETE /system/clients/{client_id} auth=True usc=True exe=/usr/sbin/gl_kvm_gui
 GET /atx auth=True usc=True exe=-
 GET /auth/check auth=True usc=False exe=-
 GET /export/prometheus/metrics auth=True usc=True exe=-
@@ -36,13 +35,11 @@ GET /streamer/ocr auth=True usc=True exe=-
 GET /streamer/snapshot auth=True usc=True exe=-
 GET /switch auth=True usc=True exe=-
 GET /system/capability auth=True usc=True exe=-
-GET /system/clients auth=True usc=True exe=/usr/sbin/gl_kvm_gui
 GET /system/get_config auth=True usc=True exe=-
 GET /system/get_firewall_config auth=True usc=True exe=-
 GET /system/get_hostname auth=True usc=True exe=-
 GET /system/get_network_config auth=True usc=True exe=-
 GET /system/get_param auth=True usc=True exe=-
-GET /system/gui_get_param auth=True usc=True exe=/usr/sbin/gl_kvm_gui
 GET /system/ntp auth=True usc=True exe=-
 GET /system/otg_functions auth=True usc=True exe=-
 GET /system/ssl_cert auth=True usc=True exe=-
@@ -55,7 +52,6 @@ GET /upgrade/download_cancel auth=True usc=True exe=-
 GET /upgrade/download_info auth=True usc=True exe=-
 GET /upgrade/edid_list auth=True usc=True exe=-
 GET /upgrade/get_edid auth=True usc=True exe=-
-GET /upgrade/gui_compare auth=True usc=True exe=/usr/sbin/gl_kvm_gui
 GET /upgrade/log auth=True usc=True exe=-
 GET /upgrade/reboot auth=True usc=True exe=-
 GET /upgrade/reset_default auth=True usc=True exe=-
@@ -113,7 +109,6 @@ POST /switch/set_active_prev auth=True usc=True exe=-
 POST /switch/set_beacon auth=True usc=True exe=-
 POST /switch/set_colors auth=True usc=True exe=-
 POST /switch/set_port_params auth=True usc=True exe=-
-POST /system/gui_set_param auth=True usc=True exe=/usr/sbin/gl_kvm_gui
 POST /system/ntp auth=True usc=True exe=-
 POST /system/otg_functions auth=True usc=True exe=-
 POST /system/reinit_udc auth=True usc=True exe=-
