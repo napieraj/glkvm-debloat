@@ -71,3 +71,29 @@ Ride this along with the rule-13 patch already in `queued/`. House style of the
 >   a measurement or a named constraint, never a preference, and say what would
 >   settle it. Once an objection has been heard and the call reaffirmed, that is the
 >   decision: proceed and record it. Friction is a check, not a veto.
+
+## Build hazards found while orchestrating
+
+**A mutation run that outlives its timeout keeps mutating.** A mutation loop was
+backgrounded when it exceeded its 120s limit. It carried on applying mutations to
+`internal/server/device.go` — in the live working tree — for another ten minutes
+while commits were being made from the same tree. Nothing was corrupted, but only
+because the loop's restore step happened to write the same content the commits
+expected. That is luck, not design.
+
+Two rules follow. Run mutation loops in a throwaway worktree, never in the tree
+you are committing from. And when a long command is backgrounded, treat the files
+it touches as contended until it reports, rather than assuming it died with its
+timeout.
+
+**A mutation that hangs is not a mutation that bit.** The same loop's first
+mutation took 600 seconds and reported `FAIL` only on timeout. The test was
+writing 70000 bytes into an unbuffered `net.Pipe` that nothing was reading, so
+removing the bound made the test *block* rather than fail. A hung test reads as
+neither red nor green, and in CI it reads as an infrastructure problem rather
+than a caught regression.
+
+So: when mutation-checking anything that writes to a pipe, socket or queue, race
+the operation against a deadline and fail on the deadline. Check the symmetric
+case too — a bound that is too STRICT writes nothing, so an undeadlined read on
+the other side hangs just as silently.
