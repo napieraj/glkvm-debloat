@@ -17,3 +17,10 @@ python-periphery
 # layer -- there is no route to the Arch mirrors from where this was written,
 # so an Arch package name would be a guess.
 installer
+# kvmd/keyboard/mappings.py does `from evdev import ecodes` at module scope,
+# and mappings.py is reached by most of the suite, so its absence is not one
+# failing test -- it is 9 collection errors and pytest exiting 2 before running
+# anything. It appears in no package list anywhere: not this file, not the
+# Dockerfile, not PKGBUILD. A documentation pass flagged it as unsettled and
+# this is CI confirming it.
+evdev

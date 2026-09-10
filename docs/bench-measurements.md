@@ -124,3 +124,25 @@ symmetric: an unused package costs bytes, a missing used one breaks the daemon.
 Contrast `kvmd/apps/kvmd/switch` (3,265 lines), which has three in-tree
 importers including an unconditional `from .switch import Switch` — that one
 needed no device answer and its omission from `packages` was a live bug.
+
+## 6. Does the device image provide `evdev`?
+
+`PKGBUILD` does not list it, and 14 modules import it unconditionally at module
+scope — `kvmd/mouse.py`, `kvmd/keyboard/{mappings,printer,magic}.py`,
+`kvmd/apps/vnc/{server.py,rfb/__init__.py}`, `kvmd/apps/localhid/{hid,server}.py`,
+`kvmd/plugins/hid/**` and more. `grep -c evdev PKGBUILD` returns 0.
+
+If nothing supplies it, an installed kvmd cannot import, which is the same shape
+as the four packages missing from `setup.py` (fixed) and would be far more
+visible. So something almost certainly does provide it — GL's image, or a
+transitive dependency of another Arch package — and rule 12 says a missing entry
+in a dependency list here proves nothing about the unit.
+
+**Procedure:** on a device, `python3 -c "import evdev; print(evdev.__file__)"`,
+then `pacman -Qo` that path to see which package owns it.
+
+**What it decides:** whether `PKGBUILD` has a real missing dependency that has
+been masked by something else installing it, or whether the list is simply
+incomplete-but-harmless. Left unchanged meanwhile, consistently with
+`openssl-1.1` and `python-periphery`: `PKGBUILD` is the device package's
+dependency list, not this container's.
