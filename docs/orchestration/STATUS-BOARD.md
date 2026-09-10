@@ -96,19 +96,63 @@ of **branch topology** rather than of one tree. Nothing currently checks for it.
 Owner leans 3: a missing reference store is itself a fact worth failing on.
 Shipping `hutk39` standalone without choosing leaves the skip in place.
 
-## Row 2 — `provision` is a named blind spot, not an open task
+## Row 2 — `provision`: RESOLVED, and it was a phantom
 
-`add_repo` for `napieraj/provision` was **denied by the auto-mode classifier**.
-Not a GitHub scope or permissions problem, and not worked around. Owner is
-getting it approved.
+Owner supplied the repo as an archive on 2026-09-10. Measured:
 
-Behind it: step 13 (beacon enrolment, `kvmd/apps/beacon/`), and the
-`InitManager.init()` gate — the most dangerous deliberate leave in either tree.
-Wiring `init()` back up re-exposes CRITICAL R5.4 unless it is gated behind
-pinned-cert provisioning, never behind the old unauth path. Two sessions touch
-`provision`; one previously reported it as an empty repo (an 11-byte README)
-while treating it as the home of the migration module and the attestation doc.
-That mismatch is unresolved and cannot be resolved from here.
+- **One commit** — `5750183`, "Initial commit", 2026-09-09, Oskar Napieraj.
+- **One tracked file** — `README.md`, **11 bytes**, contents `# provision`.
+- Nothing else. No migration module. No attestation doc. No tunnel client.
+
+**The worker who reported it as an empty repo with an 11-byte README was exactly
+right, and that report should stop being carried as an unresolved mismatch.** The
+belief that it hosted the migration module and the attestation doc came from
+conflating two different things that share a word:
+
+| | What it is | State |
+|---|---|---|
+| `napieraj/provision` | a GitHub repo | empty, 11 bytes, **to be deprecated** |
+| "the provisioning module" | kazbek roadmap item 3 — cert issuance and the pairing ceremony | unbuilt, referenced from four kazbek docs |
+
+Every kazbek hit (`HANDOFF-first-pr.md:55`, `docker-compose/certificate/README.md:47`,
+`docs/modules/migration.md:68`, `docs/modules/signing.md:27`,
+`docs/modules/plugins.md:104`, `docs/modules/tunnel-client.md:85`) refers to the
+**module**, not the repo. None of them is affected by deprecating the repo.
+
+### Consequences of deprecation
+
+**Step 13 was never gated on provision.** The handoff argued provision mattered
+because "it is also where step 13 (beacon enrolment) lands". There is nothing there
+for it to land on or beside. Step 13's real and only constraint is unchanged and
+lives entirely in glkvm-debloat: `InitManager.init()` has no caller, is kept
+deliberately, and wiring it back up re-exposes CRITICAL R5.4 unless gated behind
+pinned-cert provisioning — never behind the old unauth path. Deprecating the repo
+removes a phantom dependency; it unblocks nothing and blocks nothing.
+
+**One claim in `AGENTS.md` should go with it.** `AGENTS.md:35-36` on `hutk39` reads:
+"The same shape applies to the provisioning repo: its device-side tunnel client is
+missing for exactly this reason." Cited as an instance of rule 12 — a source search
+proves the absence of a caller, never of a mechanism. It is a poor instance: the
+repo does not have one component missing for a subtle reason, it has nothing at all.
+The genuine instances of rule 12 (the rtty client, `updateEngine`,
+`swupdate_start.sh`, the flash trigger) carry the point without it. Delete the
+sentence when the repo is deprecated.
+
+**The tunnel client is unowned and unwritten.** `kazbek/docs/modules/tunnel-client.md`
+files it with owner `glkvm-debloat`. It is not in provision, not in either tree, and
+not started — an unbudgeted core deliverable under roadmap item 0.
+
+### Separate rot found while checking this
+
+`docs/lean-plan.md:741-742` (`hutk39`) and `:611-612` (`webauthn`) document a
+"sandbox fallback when Docker is unavailable" command. **Both halves of its
+`PYTHONPATH` are dead:** `/home/user/glkvm-lean` does not exist (the repo is
+`glkvm-debloat`), and
+`/tmp/claude-0/-home-user-provision/24a544c1-.../scratchpad/stub` is a scratch
+directory belonging to a container that no longer exists. The one documented
+procedure for the exact situation everyone keeps hitting cannot run. It is why this
+session had to reconstruct a virtualenv from scratch. Replace it with the dependency
+set that actually works, recorded in `CORRECTIONS-REGISTER.md`.
 
 ## Row 3 — four bench measurements, one unit, one trip
 

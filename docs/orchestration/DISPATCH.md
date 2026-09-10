@@ -30,10 +30,25 @@ You own the steps line. Three things, in order.
    on BusyBox init. Check for a launcher reference before deleting each — a
    source search proves the absence of a caller, never of a mechanism.
 
-**Do not start steps 13–15.** Step 13 is beacon enrolment; it needs
-`napieraj/provision`, which is not in scope for any session right now, and its
-constraint is `InitManager.init()` — wiring that back up re-exposes CRITICAL R5.4
-unless it is gated behind pinned-cert provisioning.
+**Steps 13–15: the provision blocker is gone, but do not start them yet.**
+`napieraj/provision` has been measured — one commit, one 11-byte `README.md`,
+nothing else — and it is being deprecated. Step 13 was never gated on it; there is
+nothing there. The real and only constraint is unchanged: `InitManager.init()` has
+no caller, is kept deliberately, and wiring it back up re-exposes CRITICAL R5.4
+unless gated behind pinned-cert provisioning, never behind the old unauth path.
+That gating is a design step and needs the owner, not a worker.
+
+While you are in `AGENTS.md`, delete lines 35–36 — "The same shape applies to the
+provisioning repo: its device-side tunnel client is missing for exactly this
+reason." The repo is empty and going away, so it is a bad instance of rule 12; the
+rtty client, `updateEngine`, `swupdate_start.sh` and the flash trigger carry the
+point without it.
+
+Also fix `docs/lean-plan.md:741-742`. The documented "sandbox fallback when Docker
+is unavailable" command cannot run: `/home/user/glkvm-lean` does not exist and the
+stub `PYTHONPATH` points into a dead container's scratch directory. Replace it with
+the dependency set in `docs/orchestration/CORRECTIONS-REGISTER.md`, which is
+measured and works.
 
 ---
 
