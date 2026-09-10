@@ -36,7 +36,8 @@
 >
 > When a question is about device state or device behaviour it goes to
 > `test_on_device_residuals` in the attestation suite — not into this plan, and
-> not into a grep.
+> not into a grep. Where it needs a procedure rather than a yes/no, it goes to
+> `docs/bench-checks.md`.
 
 > **SIX BUILD HAZARDS. All six have bitten in this project, three of them twice,
 > and every one returns SILENTLY rather than failing loudly.**

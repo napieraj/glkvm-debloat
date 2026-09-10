@@ -29,7 +29,8 @@ other half of the mechanism lives. If the answer is "the image", the question is
 **device-verifiable, not source-verifiable**, and it belongs in
 `test_on_device_residuals` in `testenv/tests/test_attestation.py` — the
 skipped-by-default docstring that records checks needing a unit on the bench —
-not in a grep and not in a design document.
+not in a grep and not in a design document. Checks needing a procedure rather
+than a yes/no live in `docs/bench-checks.md`.
 
 The same shape applies to the provisioning repo: its device-side tunnel client
 is missing for exactly this reason.
