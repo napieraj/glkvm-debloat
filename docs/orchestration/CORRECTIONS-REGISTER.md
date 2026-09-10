@@ -346,15 +346,31 @@ Exit code 2. The tox summary line reads `mypy: FAIL code 2`, which looks like
 the tree was type-checked, on any run, since that import was written.
 
 Fixed by making the import relative (`from .test_routes import ...`), which is
-what the rest of the suite does. mypy then completes: **116 errors in 38 files,
-286 source files checked** — in the reconstructed venv, and the figure is
-environment-dependent, because `ignore_missing_imports = true` silences whatever
-is not installed. The same command with fewer packages installed reported 91.
-CI's number is the one that counts.
+what the rest of the suite does. mypy then completes. Measured in the
+reconstructed venv, cache cleared between runs:
 
-Two of those errors were in `kvmd/tools.py`, on `run_command`'s return, which is
-the value `kvmd/plugins/auth/webauthn.py` reads as the openssl signature verdict.
+| tree | mypy |
+|---|---|
+| before the unblock (`f96c0eb^`) | exit 2, **nothing checked** |
+| the unblock alone (`f96c0eb`) | exit 1, **118 errors in 39 files**, 286 checked |
+| with the `kvmd/tools.py` narrowing (`4fa7cac`) | exit 1, **116 errors in 38 files** |
+
+Both of those figures are environment-dependent: `ignore_missing_imports = true`
+silences whatever is not installed, and the same command in this venv reported 91
+before the runtime dependencies went in. CI's number is the one to act on.
+
+Two of the errors were in `kvmd/tools.py`, on `run_command`'s return, which is the
+value `kvmd/plugins/auth/webauthn.py` reads as the openssl signature verdict.
 Fixed in the same series.
+
+**Correction to the two commit messages in that series, both already pushed.**
+`f96c0eb` states "116 errors in 38 files" and `4fa7cac` states "116 -> 114". Both
+are wrong by the same 2, and in the same way: I measured the count once, after
+applying the `tools.py` fix, then attributed it to the commit before it as well.
+The table above is the measured set. The figures are not load-bearing for either
+change, but a number stated without being measured at the tree it describes is
+exactly what rule 1 is about, and this register is where that gets said rather
+than quietly rebased away.
 
 **Still open:** the other 114. And the reading habit that hid this — `FAIL code N`
 in a tox summary is an exit status, not a count. `pylint: FAIL code 30` is
