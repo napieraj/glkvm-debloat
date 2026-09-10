@@ -831,6 +831,55 @@ fork kept upstream's test harness and its lint configuration, so the scaffolding
 already present and unused. Restoring the lint gate alone would clear 742 findings and
 catch the 71 unused imports that make dead code hard to spot.
 
+### What the 742 is, and what it is not
+
+The number invites the reading that it is 742 whitespace complaints. It is not. The
+fork's own `testenv/linters/flake8.ini` suppresses exactly six codes — W503, E221,
+E227, E241, E252, Q003 — and every one is cosmetic: whitespace around operators and
+commas, and one quote-style preference. **None is in pyflakes' F-class.** Nothing
+that could hide a latent defect has been switched off.
+
+The configuration is in fact slightly STRICTER than stock flake8, and probably by
+accident: it uses `ignore =`, which REPLACES flake8's default suppressions rather
+than extending them, so E123, E126, E226 and W504 are all live here and would not be
+under a default invocation. The error, if there is one, errs safe.
+
+Which makes the real finding the inverse of a suppression. On pristine `main` the
+enabled gate reports **100 pyflakes findings**: 71 F401 unused imports, 12 F841
+unused locals, 8 F541, 6 F821 undefined names, 2 F601 duplicate dict keys, 1 F811
+redefinition. The gate is not misconfigured and it is not lenient. It is simply
+**never read**, and every one of those six F821s was a real undefined name:
+
+- `utils.py:39` — `get_logger`, which made `get_model_name()`'s except branch raise
+  `NameError`. Any device without `/proc/gl-hw-info/model` failed to import
+  `kvmd.apps.kvmd` at all, and every test run collected zero tests.
+- `api/ap.py` ×3 and `api/modem.py` — `InternalServerError`, in exception handlers,
+  where the substitute failure would land instead of the intended 500.
+- `switch/sysfs_device.py:279` — `SysfsDevice`, a forward reference to a class that
+  does not exist (the class is `Device`). Harmless today, because a string
+  annotation is stored rather than evaluated, and becomes a real `NameError` under
+  anything that resolves type hints.
+
+And the two F601s were a duplicate `"config"` key in the OTG scheme
+(`apps/__init__.py`), where Python discards the first silently — the source
+described a USB configuration descriptor defaulting to empty and accepting empty,
+while the program used `"Glinet device"` and rejected empty.
+
+A lint gate that reports a hundred real findings and is never run is worse than no
+gate: it produces the appearance of coverage. All of the above are fixed on the
+debloat branch, which reports 0 F821, 0 F811 and 0 F601.
+
+### The test suite that cannot run on `main`
+
+`testenv/tests/apps/kvmd/test_auth.py` fails at **import** on pristine `main` — first
+on the `get_logger` F821 above, and behind it on fixtures that pass four of
+`HttpExposed`'s six fields, so the handler lands in `allow_usc`. It cannot be
+collected in any environment, including the project's own Docker testenv, which means
+whatever CI runs against `main` has been running without the authentication tests.
+
+The repair exists only on the debloat branch (`1ab2083`). Until that branch lands,
+this is a live gap on `main` rather than a historical one.
+
 **Report these to GL.iNet, not to PiKVM.** Every finding is fork-introduced. Nothing
 here reflects on upstream, and none of it belongs in an upstream-facing issue.
 
