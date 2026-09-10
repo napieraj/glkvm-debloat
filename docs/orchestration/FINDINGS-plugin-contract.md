@@ -1,5 +1,12 @@
 # Plugin contract findings — 2026-09-10
 
+> **STATUS: all six resolved or recorded.** Findings 1, 2 and 4 are fixed in
+> both halves with mutation-checked tests and shared conformance vectors.
+> Findings 3 and 5 are constraints on code that does not exist yet and are
+> recorded at the definitions someone would undo them at. Finding 6 is
+> informational. Everything below is the original report; the resolution of
+> each is appended at the end.
+
 From the branch-scoping pass. **Provenance is marked on every item**: what this
 orchestrator executed itself, versus what a subagent measured and this orchestrator
 has not independently reproduced. Per the working agreement, a relayed measurement
@@ -103,3 +110,94 @@ first. Findings 4 and 5 are kazbek-side and want reproduction before action.
 
 None of this is affected by D-016 or D-017 — it is all inside the existing
 `hash-only` floor.
+
+---
+
+# Resolution — 2026-09-10, later the same day
+
+Everything relayed as agent-measured above was independently reproduced before
+being acted on, per the working agreement. Two of them turned out sharper than
+reported.
+
+## 1 + 2, fixed in both halves
+
+Reproduced the `.pyc` precedence directly: a `.py` on disk reading
+`VERSION = 2`, with a stale `.pyc` from `VERSION = 1` at matching size and
+mtime, imported as **1** in a fresh interpreter after `invalidate_caches()` —
+and `__file__` still named the `.py`, so introspection lies too. Deleting
+`__pycache__` returned 2.
+
+Then found the report understated it. `.so` is not merely accepted, it **wins**:
+`EXTENSION_SUFFIXES` resolve before `SOURCE_SUFFIXES`, so with a valid
+`probe.py` and a 16-byte non-ELF `probe.so` present, the import raised
+`ImportError` on the `.so` rather than falling through to the source.
+
+Both halves now refuse `__pycache__` path segments and the `.pyc` / `.pyo` /
+`.pyd` / `.so` suffixes at admission, before anything reaches disk, with
+`bundle.unsafe_entry`. The suffix list is fixed rather than derived from
+`importlib.machinery`, so the two languages can agree across CPython versions;
+a test asserts every suffix the runtime reports as importable is covered, so a
+CPython change reddens the *reason* rather than silently widening the hole.
+
+Four mutations bite in each language: dropping the call, dropping the
+`__pycache__` refusal, dropping `.so`, and making the match case-sensitive.
+
+Three shared conformance vectors were added — `unsafe-bytecode-cache`,
+`unsafe-native-extension`, `unsafe-sourceless-bytecode` — generated from
+`tools/genvectors.py` rather than hand-crafted. `CONTRACT-SHA256` moves
+`c2dc4976…` → `4888f9ea…`, vendored byte-identically into both repos. Without
+these the two halves would have agreed by construction rather than by contract.
+
+Worth recording: **the contract-hash guard worked.** `test_contract_sha256`
+went red the moment the vectors changed and before the recorded hash was
+updated — exactly the one-sided-edit alarm it exists to be.
+
+## 3, recorded — placement does not exist yet
+
+Nothing in `kvmd/pluginmgr/` writes to disk, so there is no ordering to fix,
+only one to record. The constraint is now in `readback_for`'s docstring, which
+is where whoever writes placement will read it, along with the measurement
+(`38013ee7…` before a `get_plugin_class()`, `a1434df0…` after) and the warning
+that `chmod 0555` does not model the production ro remount — as root the import
+writes through it, so the nothing-touched-disk assertion must be a before/after
+hash of the store root.
+
+## 4, fixed — and it is worse than truncation
+
+Reproduced over `net.Pipe`: body 100 → declared 100, body 65533 → declared
+65533, **body 70000 → declared 4464**, all 70000 bytes written, nil error.
+
+That is frame desynchronisation, not truncation: the peer reads 4464 bytes as
+the message and parses the remaining ~65k as further frames, so the tail is
+interpreted as attacker-chosen framing. `internal/plugins/wire.go:128` already
+refused at this bound — the plugin layer was correct and the rtty transport
+underneath it was not. `WriteMsg` now refuses. Three mutations bite.
+
+A note on the tests, because it nearly bit: the first draft **hung** under the
+remove-the-bound mutation instead of failing, because `net.Pipe` is unbuffered
+and an unrefused oversized write blocks on an unread pipe. A hung test is not a
+red test. Both tests now race the write against a deadline, and the boundary
+test deadlines its read for the symmetric reason — a too-strict bound writes
+nothing and would otherwise hang.
+
+Baseline honesty: `go test ./internal/server/` is red on the base with and
+without the change, identically (`FATA open : no such file or directory`, from
+the log-file hook that attaches whenever stdout is not a TTY). These tests were
+run filtered.
+
+## 5, recorded — latent, not live, and not fixable at `Resolve`
+
+Measured reachability: `Resolve`'s only caller is `GateNamed`, whose only
+caller is the vector suite. **Nothing reaches it from configuration**, so this
+is not a live hole.
+
+It also cannot be fixed at `Resolve`: the shared vectors in `verify.json`
+exercise `noop`, so removing it would break the conformance suite that proves
+the two halves agree. The constraint belongs at the boundary where a name first
+arrives from config, and that boundary does not exist yet. Recorded at both
+definitions naming who owns it.
+
+## 6, informational — unchanged
+
+`CapPluginInstall = "plugin.install"` exists in the authz vocabulary. D-017
+(the `sandbox` vocabulary stays empty) is unaffected and still correct.
