@@ -29,6 +29,7 @@ from typing import Any
 from .errors import RefusalError
 from .errors import CODE_MALFORMED
 from .errors import CODE_BAD_NAME
+from .errors import CODE_BAD_REVISION
 from .errors import CODE_BAD_TYPE
 from .errors import CODE_BAD_RUNTIME
 from .errors import CODE_BAD_ENTRY
@@ -38,8 +39,7 @@ from .errors import CODE_BAD_COMPAT
 from .errors import CODE_BAD_PAYLOAD_HASH
 from .errors import CODE_BAD_PAYLOAD_SIZE
 from .errors import CODE_PAYLOAD_TOO_LARGE
-from .errors import CODE_CAPABILITIES_NOT_ALLOWED
-from .errors import CODE_BAD_CAPABILITY
+from .errors import CODE_SANDBOX_NOT_ALLOWED
 
 
 # =====
@@ -52,6 +52,14 @@ PAYLOAD_MAX_SIZE = 8 << 20
 # this set has no loader and cannot be placed anywhere meaningful.
 PLUGIN_TYPES = ("atx", "msd", "hid", "ugpio", "auth")
 
+# The only trust model v2 accepts. A manifest declaring anything else is
+# uninterpretable, not merely invalid.
+# Kept here rather than imported from .wire: wire imports manifest for the
+# canonical encoder, so the dependency runs one way only.
+PROTOCOL_VERSION = 2
+
+SIGNATURE_MODEL_HASH_ONLY = "hash-only"
+
 RUNTIME_DEVICE = "device"
 RUNTIME_MANAGEMENT = "management"
 
@@ -62,13 +70,14 @@ RUNTIME_MANAGEMENT = "management"
 _NAME_RE = re.compile(r"^[a-z][a-z0-9_]{0,31}$")
 _ENTRY_RE = re.compile(r"^plugins/(atx|msd|hid|ugpio|auth)/([a-z][a-z0-9_]{0,31})\.py$")
 _HEX_RE = re.compile(r"^[0-9a-f]{64}$")
-_CAP_RE = re.compile(r"^[a-z][a-z0-9_.]{0,63}$")
 _COMPAT_RE = re.compile(r"^(>=|<=|==)?[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
-_REQUIRED = ("entry", "firmware_compat", "model_compat", "name", "payload", "runtime", "type")
-_OPTIONAL = ("capabilities", "signature")
+_REQUIRED = ("entry", "firmware_compat", "model_compat", "name",
+             "payload", "revision", "runtime", "signature", "type")
+_OPTIONAL = ("sandbox",)
 _PAYLOAD_REQUIRED = ("sha256", "size")
-_SIGNATURE_ALLOWED = ("alg", "key_id", "value")
+_SIGNATURE_REQUIRED = ("entries", "model")
+_SIGNATURE_OPTIONAL = ("expires", "threshold")
 
 
 @dataclasses.dataclass(frozen=True)
@@ -78,13 +87,31 @@ class Payload:
 
 
 @dataclasses.dataclass(frozen=True)
+class Signature:
+    """
+    The trust block.
+
+    Required rather than optional so every manifest states its model
+    explicitly: an optional block would leave "unsigned" and "signature
+    omitted" indistinguishable, which is the ambiguity a downgrade attack lives
+    in. A later signed verifier refuses model "hash-only" outright instead of
+    inferring intent from an absent field.
+    """
+
+    model: str
+    entries: tuple[dict, ...]
+    threshold: (int | None) = None
+    expires: (str | None) = None
+
+
+@dataclasses.dataclass(frozen=True)
 class Manifest:  # pylint: disable=too-many-instance-attributes
     """
     Describes a plugin.
 
-    capabilities and signature are None when absent and a (possibly empty)
-    value when present, because canonical encoding omits an absent field
-    entirely but must still emit an explicitly empty capabilities list.
+    sandbox is None when absent and a (possibly empty) tuple when present,
+    because canonical encoding omits an absent field entirely but must still
+    emit an explicitly empty list.
     """
 
     entry: str
@@ -92,25 +119,33 @@ class Manifest:  # pylint: disable=too-many-instance-attributes
     model_compat: str
     name: str
     payload: Payload
+    revision: int
     runtime: str
+    signature: Signature
     type: str  # pylint: disable=redefined-builtin
-    capabilities: (tuple[str, ...] | None) = None
-    signature: (dict[str, str] | None) = None
+    sandbox: (tuple[str, ...] | None) = None
 
     def to_dict(self) -> dict:
         # Keys inserted in bytewise-sorted order; json.dumps(sort_keys=True)
         # makes that explicit rather than relying on insertion order.
+        sig: dict[str, Any] = {"entries": [dict(e) for e in self.signature.entries]}
+        if self.signature.expires is not None:
+            sig["expires"] = self.signature.expires
+        sig["model"] = self.signature.model
+        if self.signature.threshold is not None:
+            sig["threshold"] = self.signature.threshold
+
         out: dict[str, Any] = {}
-        if self.capabilities is not None:
-            out["capabilities"] = list(self.capabilities)
         out["entry"] = self.entry
         out["firmware_compat"] = self.firmware_compat
         out["model_compat"] = self.model_compat
         out["name"] = self.name
         out["payload"] = {"sha256": self.payload.sha256, "size": self.payload.size}
+        out["revision"] = self.revision
         out["runtime"] = self.runtime
-        if self.signature is not None:
-            out["signature"] = dict(self.signature)
+        if self.sandbox is not None:
+            out["sandbox"] = list(self.sandbox)
+        out["signature"] = sig
         out["type"] = self.type
         return out
 
@@ -126,14 +161,17 @@ class Manifest:  # pylint: disable=too-many-instance-attributes
         """
 
         self.__validate_identity()
+        self.__validate_signature()
         self.__validate_entry()
         self.__validate_compat()
         self.__validate_payload()
-        self.__validate_capabilities()
+        self.__validate_sandbox()
 
     def __validate_identity(self) -> None:
         if not _NAME_RE.match(self.name):
             raise RefusalError(CODE_BAD_NAME, f"name {self.name!r}")
+        if self.revision < 1:
+            raise RefusalError(CODE_BAD_REVISION, f"revision {self.revision}")
         if self.type not in PLUGIN_TYPES:
             # Checked before the entry, because an unknown type would otherwise
             # surface as a bad_entry: the entry pattern enumerates the known
@@ -143,6 +181,20 @@ class Manifest:  # pylint: disable=too-many-instance-attributes
             # Never defaulted: defaulting a security tier is how tiers stop
             # meaning anything.
             raise RefusalError(CODE_BAD_RUNTIME, f"runtime {self.runtime!r}")
+
+    def __validate_signature(self) -> None:
+        if self.signature.model != SIGNATURE_MODEL_HASH_ONLY:
+            # A manifest declaring a trust model this implementation does not
+            # have is uninterpretable, not merely invalid, and guessing at it
+            # is exactly the failure this field exists to prevent.
+            raise RefusalError(CODE_MALFORMED,
+                               f"signature.model {self.signature.model!r} is not a v{PROTOCOL_VERSION} model")
+        if self.signature.entries:
+            # A v2 implementation cannot check a signature and must not accept
+            # a manifest that claims one.
+            raise RefusalError(CODE_MALFORMED,
+                               f"signature.entries has {len(self.signature.entries)} entries; "
+                               f"v{PROTOCOL_VERSION} requires none")
 
     def __validate_entry(self) -> None:
         groups = _ENTRY_RE.match(self.entry)
@@ -174,17 +226,12 @@ class Manifest:  # pylint: disable=too-many-instance-attributes
             raise RefusalError(CODE_PAYLOAD_TOO_LARGE,
                                f"payload.size {self.payload.size} exceeds {PAYLOAD_MAX_SIZE}")
 
-    def __validate_capabilities(self) -> None:
-        if not self.capabilities:
+    def __validate_sandbox(self) -> None:
+        if not self.sandbox:
             return
-        # Device plugins draw their blast radius from the console they run on,
-        # not from a capability grant; allowing the field there would create a
-        # second, weaker authorisation story.
-        if self.runtime != RUNTIME_MANAGEMENT:
-            raise RefusalError(CODE_CAPABILITIES_NOT_ALLOWED, f"runtime {self.runtime!r}")
-        for cap in self.capabilities:
-            if not isinstance(cap, str) or not _CAP_RE.match(cap):
-                raise RefusalError(CODE_BAD_CAPABILITY, f"capability {cap!r}")
+        # Reserved until a vocabulary exists. Accepting a declaration that
+        # nothing enforces would be worse than having no field at all.
+        raise RefusalError(CODE_SANDBOX_NOT_ALLOWED, f"sandbox declares {len(self.sandbox)} entries")
 
 
 # =====
@@ -235,23 +282,19 @@ def parse_manifest(data: bytes) -> Manifest:
         if not isinstance(raw[key], str):
             raise RefusalError(CODE_MALFORMED, f"{key} is not a string")
 
-    caps = raw.get("capabilities")
-    if caps is not None:
-        if not isinstance(caps, list):
-            raise RefusalError(CODE_MALFORMED, "capabilities is not a list")
-        caps = tuple(caps)
+    sandbox = raw.get("sandbox")
+    if sandbox is not None:
+        if not isinstance(sandbox, list):
+            raise RefusalError(CODE_MALFORMED, "sandbox is not a list")
+        sandbox = tuple(sandbox)
 
-    sig = raw.get("signature")
-    if sig is not None:
-        # The stub. Defined now and populated never -- its presence in the
-        # schema is exactly what lets signing land as an implementation behind
-        # the Verifier seam rather than as a schema migration across a fleet of
-        # already-deployed devices. v1 must not reject a manifest for a
-        # missing, empty or unrecognised signature, nor treat one as meaningful.
-        if not isinstance(sig, dict):
-            raise RefusalError(CODE_MALFORMED, "signature is not an object")
-        _check_keys(sig, (), _SIGNATURE_ALLOWED)
-        sig = {str(k): str(v) for (k, v) in sig.items()}
+    signature = _parse_signature(raw["signature"])
+
+    revision = raw["revision"]
+    # bool is an int subclass in Python; true is not a revision. A version
+    # string is not one either -- refused here rather than coerced.
+    if isinstance(revision, bool) or not isinstance(revision, int):
+        raise RefusalError(CODE_BAD_REVISION, f"revision {revision!r} is not an integer")
 
     return Manifest(
         entry=raw["entry"],
@@ -259,10 +302,27 @@ def parse_manifest(data: bytes) -> Manifest:
         model_compat=raw["model_compat"],
         name=raw["name"],
         payload=Payload(sha256=sha256, size=size),
+        revision=revision,
         runtime=raw["runtime"],
+        signature=signature,
         type=raw["type"],
-        capabilities=caps,
-        signature=sig,
+        sandbox=sandbox,
+    )
+
+
+def _parse_signature(raw: Any) -> Signature:
+    if not isinstance(raw, dict):
+        raise RefusalError(CODE_MALFORMED, "signature is not an object")
+    _check_keys(raw, _SIGNATURE_REQUIRED, _SIGNATURE_OPTIONAL)
+    if not isinstance(raw["model"], str):
+        raise RefusalError(CODE_MALFORMED, "signature.model is not a string")
+    if not isinstance(raw["entries"], list):
+        raise RefusalError(CODE_MALFORMED, "signature.entries is not a list")
+    return Signature(
+        model=raw["model"],
+        entries=tuple(raw["entries"]),
+        threshold=raw.get("threshold"),
+        expires=raw.get("expires"),
     )
 
 

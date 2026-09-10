@@ -46,7 +46,8 @@ def test_admission_vector(case: dict) -> None:
     """
 
     try:
-        admit_offer(parse_manifest(canonical_json(case["manifest"])))
+        admit_offer(parse_manifest(canonical_json(case["manifest"])),
+                    case["installed_revision"])
     except RefusalError as ex:
         assert case["expect"] == "refuse", \
             f"expected admit, refused with {code_of(ex)!r} ({ex}) -- {case['description']}"
@@ -71,7 +72,9 @@ def test_admission_precedes_transfer() -> None:
         "model_compat": "*",
         "name": "big",
         "payload": {"sha256": "0" * 64, "size": 8388609},
+        "revision": 1,
         "runtime": "device",
+        "signature": {"entries": [], "model": "hash-only"},
         "type": "ugpio",
     }))
     with pytest.raises(RefusalError) as ex:
@@ -88,7 +91,9 @@ def test_admission_needs_no_payload() -> None:
         "model_compat": "*",
         "name": "ok",
         "payload": {"sha256": "0" * 64, "size": 1},
+        "revision": 1,
         "runtime": "device",
+        "signature": {"entries": [], "model": "hash-only"},
         "type": "ugpio",
     }))
     admit_offer(manifest)

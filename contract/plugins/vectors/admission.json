@@ -1,9 +1,10 @@
 {
   "cases": [
     {
-      "description": "The reference manifest is admitted.",
+      "description": "The reference manifest is admitted with nothing installed.",
       "expect": "admit",
       "id": "admit-reference",
+      "installed_revision": 0,
       "manifest": {
         "entry": "plugins/ugpio/acme_relay.py",
         "firmware_compat": ">=1.10.0",
@@ -13,7 +14,12 @@
           "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
           "size": 10240
         },
+        "revision": 1,
         "runtime": "device",
+        "signature": {
+          "entries": [],
+          "model": "hash-only"
+        },
         "type": "ugpio"
       }
     },
@@ -21,6 +27,7 @@
       "description": "A declared size exactly at the 8 MiB ceiling is admitted.",
       "expect": "admit",
       "id": "admit-at-cap",
+      "installed_revision": 0,
       "manifest": {
         "entry": "plugins/ugpio/acme_relay.py",
         "firmware_compat": ">=1.10.0",
@@ -30,7 +37,12 @@
           "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
           "size": 8388608
         },
+        "revision": 1,
         "runtime": "device",
+        "signature": {
+          "entries": [],
+          "model": "hash-only"
+        },
         "type": "ugpio"
       }
     },
@@ -39,6 +51,7 @@
       "description": "One byte over the ceiling. Because a dropped transfer restarts from chunk 0, an untransferable bundle must be refused while it is still a declaration rather than discovered on the last chunk.",
       "expect": "refuse",
       "id": "refuse-over-cap",
+      "installed_revision": 0,
       "manifest": {
         "entry": "plugins/ugpio/acme_relay.py",
         "firmware_compat": ">=1.10.0",
@@ -48,7 +61,12 @@
           "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
           "size": 8388609
         },
+        "revision": 1,
         "runtime": "device",
+        "signature": {
+          "entries": [],
+          "model": "hash-only"
+        },
         "type": "ugpio"
       }
     },
@@ -57,6 +75,7 @@
       "description": "A wildly oversized declaration is refused without allocating anything.",
       "expect": "refuse",
       "id": "refuse-absurd-size",
+      "installed_revision": 0,
       "manifest": {
         "entry": "plugins/ugpio/acme_relay.py",
         "firmware_compat": ">=1.10.0",
@@ -66,7 +85,12 @@
           "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
           "size": 4294967296
         },
+        "revision": 1,
         "runtime": "device",
+        "signature": {
+          "entries": [],
+          "model": "hash-only"
+        },
         "type": "ugpio"
       }
     },
@@ -75,6 +99,7 @@
       "description": "An empty bundle is not a plugin.",
       "expect": "refuse",
       "id": "refuse-zero-size",
+      "installed_revision": 0,
       "manifest": {
         "entry": "plugins/ugpio/acme_relay.py",
         "firmware_compat": ">=1.10.0",
@@ -84,7 +109,12 @@
           "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
           "size": 0
         },
+        "revision": 1,
         "runtime": "device",
+        "signature": {
+          "entries": [],
+          "model": "hash-only"
+        },
         "type": "ugpio"
       }
     },
@@ -93,6 +123,7 @@
       "description": "Admission validates the whole manifest, so a traversal entry never reaches the point of transferring bytes.",
       "expect": "refuse",
       "id": "refuse-unsafe-entry",
+      "installed_revision": 0,
       "manifest": {
         "entry": "plugins/ugpio/../../evil.py",
         "firmware_compat": ">=1.10.0",
@@ -102,19 +133,22 @@
           "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
           "size": 10240
         },
+        "revision": 1,
         "runtime": "device",
+        "signature": {
+          "entries": [],
+          "model": "hash-only"
+        },
         "type": "ugpio"
       }
     },
     {
-      "code": "manifest.capabilities_not_allowed",
-      "description": "Tier violations are refused before transfer too.",
+      "code": "manifest.sandbox_not_allowed",
+      "description": "Reserved fields fail closed at admission too.",
       "expect": "refuse",
-      "id": "refuse-management-capabilities-on-device",
+      "id": "refuse-sandbox-declaration",
+      "installed_revision": 0,
       "manifest": {
-        "capabilities": [
-          "fleet.admin"
-        ],
         "entry": "plugins/ugpio/acme_relay.py",
         "firmware_compat": ">=1.10.0",
         "model_compat": ">=rm1pe",
@@ -123,11 +157,162 @@
           "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
           "size": 10240
         },
+        "revision": 1,
         "runtime": "device",
+        "sandbox": [
+          "net.outbound"
+        ],
+        "signature": {
+          "entries": [],
+          "model": "hash-only"
+        },
+        "type": "ugpio"
+      }
+    },
+    {
+      "description": "A higher revision than the installed one is the normal upgrade path.",
+      "expect": "admit",
+      "id": "rollback-upgrade-admitted",
+      "installed_revision": 4,
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "revision": 5,
+        "runtime": "device",
+        "signature": {
+          "entries": [],
+          "model": "hash-only"
+        },
+        "type": "ugpio"
+      }
+    },
+    {
+      "description": "No installed revision is 0, so any valid revision is an upgrade.",
+      "expect": "admit",
+      "id": "rollback-first-install-admitted",
+      "installed_revision": 0,
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "revision": 1,
+        "runtime": "device",
+        "signature": {
+          "entries": [],
+          "model": "hash-only"
+        },
+        "type": "ugpio"
+      }
+    },
+    {
+      "code": "policy.rollback_refused",
+      "description": "Equal is refused, not just lower: re-serving the identical revision is the freeze half of the attack class. Idempotent re-push is handled by the payload-hash noop path, not by accepting a stale revision.",
+      "expect": "refuse",
+      "id": "rollback-equal-refused",
+      "installed_revision": 4,
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "revision": 4,
+        "runtime": "device",
+        "signature": {
+          "entries": [],
+          "model": "hash-only"
+        },
+        "type": "ugpio"
+      }
+    },
+    {
+      "code": "policy.rollback_refused",
+      "description": "The downgrade case: a genuinely-authored older plugin with a known flaw, re-served. Closed by an integer comparison, independent of any signing model -- which is why it lands now rather than with signing.",
+      "expect": "refuse",
+      "id": "rollback-lower-refused",
+      "installed_revision": 7,
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "revision": 2,
+        "runtime": "device",
+        "signature": {
+          "entries": [],
+          "model": "hash-only"
+        },
+        "type": "ugpio"
+      }
+    },
+    {
+      "code": "policy.rollback_refused",
+      "description": "Revision 1 against a long-running install.",
+      "expect": "refuse",
+      "id": "rollback-far-lower-refused",
+      "installed_revision": 999,
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "revision": 1,
+        "runtime": "device",
+        "signature": {
+          "entries": [],
+          "model": "hash-only"
+        },
+        "type": "ugpio"
+      }
+    },
+    {
+      "code": "manifest.entry_type_mismatch",
+      "description": "A manifest violation is reported even when the revision is also stale, so the two implementations cannot disagree about which code comes back.",
+      "expect": "refuse",
+      "id": "rollback-checked-after-manifest",
+      "installed_revision": 9,
+      "manifest": {
+        "entry": "plugins/atx/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "revision": 1,
+        "runtime": "device",
+        "signature": {
+          "entries": [],
+          "model": "hash-only"
+        },
         "type": "ugpio"
       }
     }
   ],
-  "description": "Offer-admission vectors. Run admit(manifest) -- the check a device performs on plugin.offer, BEFORE sending plugin.fetch and before any payload chunk moves. An 'admit' case must pass; a 'refuse' case must refuse with the given code and no fetch may be sent. Admission neither sees nor needs the payload, which is exactly what distinguishes it from the verify gate.",
-  "v": 1
+  "description": "Offer-admission vectors. Run admit(manifest, installed_revision) -- the check a device performs on plugin.offer, BEFORE sending plugin.fetch and before any payload chunk moves. An 'admit' case must pass; a 'refuse' case must refuse with the given code and no fetch may be sent. installed_revision is the revision currently installed for this manifest's name, or 0 if none is. Admission neither sees nor needs the payload, which is exactly what distinguishes it from the verify gate.",
+  "protocol_version": 2,
+  "vectors_version": 1
 }

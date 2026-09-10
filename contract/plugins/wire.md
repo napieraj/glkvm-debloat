@@ -74,8 +74,16 @@ insignificant whitespace, and no trailing newline. Canonical form is required
 so that a body can be hashed reproducibly by either side — the signing module
 will need exactly this property and gets it for free by being specified now.
 
-Every JSON body carries `"v": 1`. A receiver that does not recognise `v`
+Every JSON body carries `"v": 2`. A receiver that does not recognise `v`
 refuses with `manifest.unsupported_version` rather than guessing.
+
+Version 2 is the current protocol. It differs from version 1 by three manifest
+changes — a mandatory monotonic `revision`, a structured and required
+`signature` block, and `capabilities` renamed to `sandbox` and reserved. All
+three are schema changes, and because unknown manifest fields are refused
+rather than ignored, they could not be added compatibly. That is the bump
+working as designed: extension happens by version, so strictness costs nothing
+that cannot be bought back deliberately.
 
 ## Message bodies
 
@@ -117,8 +125,15 @@ moves**:
 
 > **A device MUST admit an offer before sending `fetch`.** Admission validates
 > the manifest, which refuses `manifest.payload_too_large` for a declared
-> `payload.size` above the cap. A bundle too large to transfer is refused while
-> it is still a claim, not discovered on the last chunk.
+> `payload.size` above the cap, and compares `revision` against the installed
+> revision, which refuses `policy.rollback_refused` for a downgrade. A bundle
+> too large to transfer, or older than what is already installed, is refused
+> while it is still a claim rather than discovered on the last chunk.
+
+Anti-rollback belongs at admission for the same reason the size ceiling does:
+the device already knows its installed revision, so there is no reason to
+transfer a bundle it will reject. Both refusals report `state:"refused"` — not
+`failed` — because nothing touched the disk.
 
 Admission is a distinct check from the verify gate's step 2. Gate step 2
 compares the *assembled* length against the declared size and can only run once

@@ -64,6 +64,7 @@ _test_user
 # defines them, and tests/pluginmgr/test_errors.py fails if the two ever
 # disagree -- so these are contract surface, not dead names.
 CODE_WIRE_UNSOLICITED
+CODE_POLICY_ROLLBACK_REFUSED
 CODE_POLICY_WRONG_RUNTIME
 CODE_POLICY_INCOMPATIBLE_MODEL
 CODE_POLICY_INCOMPATIBLE_FIRMWARE

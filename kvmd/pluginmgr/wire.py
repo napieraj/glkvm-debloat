@@ -64,7 +64,13 @@ CHUNK_HEADER_LEN = 5
 FLAG_LAST = 0x01
 
 # Carried as "v" in every JSON body.
-PROTOCOL_VERSION = 1
+#
+# v2 differs from v1 by three manifest changes: a mandatory monotonic revision,
+# a structured and required signature block, and capabilities renamed to
+# sandbox and reserved. Because unknown manifest fields are refused rather than
+# ignored, none of the three could be added compatibly -- which is the bump
+# working as designed.
+PROTOCOL_VERSION = 2
 
 SUB_OFFER = 0x00
 SUB_FETCH = 0x01

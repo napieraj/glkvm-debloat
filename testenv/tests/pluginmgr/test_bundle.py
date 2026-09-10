@@ -34,6 +34,7 @@ from kvmd.pluginmgr.bundle import require_entry
 from kvmd.pluginmgr.bundle import readback_for
 from kvmd.pluginmgr.manifest import canonical_json
 from kvmd.pluginmgr.manifest import parse_manifest
+from kvmd.pluginmgr.manifest import PROTOCOL_VERSION
 from kvmd.pluginmgr.treehash import TreeFile
 from kvmd.pluginmgr.treehash import tree_hash
 
@@ -73,7 +74,9 @@ _REFERENCE_MANIFEST = {
     "model_compat": ">=rm1pe",
     "name": "acme_relay",
     "payload": {"sha256": "0" * 64, "size": 1},
+    "revision": 1,
     "runtime": "device",
+    "signature": {"entries": [], "model": "hash-only"},
     "type": "ugpio",
 }
 
@@ -114,7 +117,7 @@ def test_readback_reports_placed_tree(tmp_path: pathlib.Path) -> None:
     files = _reference_files()
     root = _place(tmp_path, files)
     body = readback_for("a" * 64, root)
-    assert body["v"] == 1
+    assert body["v"] == PROTOCOL_VERSION
     assert body["sha256"] == "a" * 64
     assert body["tree_sha256"] == tree_hash(files)
     assert [e["path"] for e in body["entries"]] == sorted(f.path for f in files)

@@ -176,15 +176,21 @@ def test_install_states_match_contract() -> None:
 # =====
 def test_json_body_round_trips_with_version() -> None:
     body = wire.encode_json_body({"sha256": "a" * 64})
-    assert body == b'{"sha256":"' + b"a" * 64 + b'","v":1}'
-    assert wire.decode_json_body(body) == {"sha256": "a" * 64, "v": 1}
+    assert body == b'{"sha256":"' + b"a" * 64 + b'","v":2}'
+    assert wire.decode_json_body(body) == {"sha256": "a" * 64, "v": 2}
 
 
 def test_json_body_refuses_unknown_version() -> None:
     # A message from a future protocol is not a message with unknown fields to
     # ignore; it is a message whose meaning is unknown.
     with pytest.raises(RefusalError) as ex:
-        wire.decode_json_body(b'{"sha256":"x","v":2}')
+        wire.decode_json_body(b'{"sha256":"x","v":3}')
+    assert ex.value.code == CODE_UNSUPPORTED_VERSION
+
+
+def test_json_body_refuses_superseded_v1() -> None:
+    with pytest.raises(RefusalError) as ex:
+        wire.decode_json_body(b'{"sha256":"x","v":1}')
     assert ex.value.code == CODE_UNSUPPORTED_VERSION
 
 
@@ -206,7 +212,7 @@ def test_json_body_refuses_a_non_object() -> None:
     assert ex.value.code == CODE_MALFORMED
 
 
-def test_vector_bodies_carry_version_one() -> None:
+def test_vector_bodies_carry_version() -> None:
     # Every JSON body in the contract must be decodable by the version check,
     # which is the cheapest way to catch a vector generated without "v".
     for case in _CASES:

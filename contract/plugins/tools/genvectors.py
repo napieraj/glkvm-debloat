@@ -65,15 +65,20 @@ def frame(tid, sub, body):
     return bytes([MSG_TYPE_PLUGIN]) + struct.pack(">H", len(inner)) + inner
 
 
+PROTOCOL_VERSION = 2
+
+
 def manifest(**over):
     m = {
         "name": "acme_relay",
+        "revision": 1,
         "type": "ugpio",
         "runtime": "device",
         "model_compat": ">=rm1pe",
         "firmware_compat": ">=1.10.0",
         "entry": "plugins/ugpio/acme_relay.py",
         "payload": {"sha256": "0" * 64, "size": 1},
+        "signature": {"model": "hash-only", "entries": []},
     }
     m.update(over)
     return m
@@ -131,18 +136,14 @@ def mcase(cid, desc, m, code=None, raw=None):
 
 
 mcase("valid-minimal", "The reference device plugin: every required field, no optionals.", GOOD)
-mcase("valid-signature-stub-absent",
-      "v1 manifests carry no signature block; its absence is never a refusal.", GOOD)
-mcase("valid-signature-stub-present",
-      "A populated signature block is accepted and ignored by v1 verifiers, "
-      "which is what lets signing land without a schema migration.",
-      manifest(payload=GOOD["payload"],
-               signature={"alg": "ed25519", "key_id": "deferred", "value": "deferred"}))
-mcase("valid-management-with-capabilities",
-      "Capabilities are permitted on the management tier.",
+mcase("valid-signature-hash-only",
+      "Every manifest states its trust model explicitly. hash-only with an "
+      "empty entries list is the only shape v2 accepts.", GOOD)
+mcase("valid-management-runtime",
+      "The management tier parses the same as the device tier; the difference "
+      "is which loader refuses it, not what the schema allows.",
       manifest(name="fleet_audit", type="auth", runtime="management",
-               entry="plugins/auth/fleet_audit.py",
-               payload=GOOD["payload"], capabilities=["device.read", "log.write"]))
+               entry="plugins/auth/fleet_audit.py", payload=GOOD["payload"]))
 mcase("valid-compat-wildcard", "'*' matches any model or firmware.",
       manifest(payload=GOOD["payload"], model_compat="*", firmware_compat="*"))
 mcase("valid-compat-exact", "A bare token is an exact-match constraint.",
@@ -226,18 +227,70 @@ mcase("payload-too-large",
 mcase("payload-size-at-cap", "Exactly at the 8 MiB cap is allowed.",
       manifest(payload={"sha256": BUNDLE_SHA, "size": 8388608}))
 
-mcase("capabilities-on-device-runtime",
-      "Invariant 6 adjacent: device plugins draw blast radius from their console, "
-      "not from a capability grant.",
-      manifest(payload=GOOD["payload"], capabilities=["fleet.admin"]),
-      "manifest.capabilities_not_allowed")
-mcase("capabilities-empty-on-device-runtime",
-      "An empty capabilities list on the device tier is permitted.",
-      manifest(payload=GOOD["payload"], capabilities=[]))
-mcase("capability-bad-token", "A capability string must match the token grammar.",
-      manifest(name="fleet_audit", type="auth", runtime="management",
-               entry="plugins/auth/fleet_audit.py", payload=GOOD["payload"],
-               capabilities=["Fleet Admin!"]), "manifest.bad_capability")
+mcase("sandbox-non-empty-refused",
+      "sandbox is reserved until a vocabulary exists. Accepting a declaration "
+      "nothing enforces would be worse than having no field at all.",
+      manifest(payload=GOOD["payload"], sandbox=["net.outbound"]),
+      "manifest.sandbox_not_allowed")
+mcase("sandbox-empty-ok", "An explicitly empty sandbox is accepted.",
+      manifest(payload=GOOD["payload"], sandbox=[]))
+mcase("sandbox-absent-ok", "An absent sandbox is accepted.", GOOD)
+mcase("capabilities-is-not-a-field",
+      "The old v1 name is now an unknown field. It was renamed because kazbek "
+      "already uses 'capability' for subject-scoped permission keys, and two "
+      "vocabularies under one word is a bug waiting to be written.",
+      dict(GOOD, capabilities=[]), "manifest.malformed")
+
+mcase("revision-missing", "revision is mandatory.",
+      {k: v for k, v in GOOD.items() if k != "revision"}, "manifest.malformed")
+mcase("revision-zero", "revision starts at 1.",
+      manifest(revision=0, payload=GOOD["payload"]), "manifest.bad_revision")
+mcase("revision-negative", "Negative revision.",
+      manifest(revision=-3, payload=GOOD["payload"]), "manifest.bad_revision")
+mcase("revision-non-integer", "A version string is not a revision.",
+      manifest(revision="1.2.3", payload=GOOD["payload"]), "manifest.bad_revision")
+mcase("revision-bool-rejected",
+      "bool is an int subclass in Python; true is not a revision.",
+      manifest(revision=True, payload=GOOD["payload"]), "manifest.bad_revision")
+mcase("revision-large-ok", "A large monotonic counter is fine.",
+      manifest(revision=2147483647, payload=GOOD["payload"]))
+
+mcase("signature-missing",
+      "The block is required so every manifest states its trust model "
+      "explicitly; an absent block would leave 'unsigned' and 'omitted' "
+      "indistinguishable, which is the ambiguity a downgrade lives in.",
+      {k: v for k, v in GOOD.items() if k != "signature"}, "manifest.malformed")
+mcase("signature-model-unknown",
+      "A manifest declaring a trust model this implementation does not have is "
+      "uninterpretable, not merely invalid.",
+      manifest(payload=GOOD["payload"],
+               signature={"model": "single-key", "entries": []}), "manifest.malformed")
+mcase("signature-model-missing", "model is required inside the block.",
+      manifest(payload=GOOD["payload"], signature={"entries": []}), "manifest.malformed")
+mcase("signature-entries-missing", "entries is required inside the block.",
+      manifest(payload=GOOD["payload"], signature={"model": "hash-only"}), "manifest.malformed")
+mcase("signature-entries-non-empty",
+      "A v2 implementation cannot check a signature and must not accept a "
+      "manifest that claims one.",
+      manifest(payload=GOOD["payload"],
+               signature={"model": "hash-only",
+                          "entries": [{"alg": "ed25519", "keyid": "k1", "value": "AAAA"}]}),
+      "manifest.malformed")
+mcase("signature-optional-members-ok",
+      "threshold and expires are accepted now so the later models need no "
+      "schema migration.",
+      manifest(payload=GOOD["payload"],
+               signature={"model": "hash-only", "entries": [],
+                          "threshold": 2, "expires": "2027-01-01T00:00:00Z"}))
+mcase("signature-unknown-member",
+      "Unknown members inside the block are refused like any other.",
+      manifest(payload=GOOD["payload"],
+               signature={"model": "hash-only", "entries": [], "surprise": "x"}),
+      "manifest.malformed")
+mcase("signature-v1-shape-refused",
+      "The v1 stub shape (alg/value/key_id) is no longer the schema.",
+      manifest(payload=GOOD["payload"],
+               signature={"alg": "ed25519", "key_id": "k", "value": "v"}), "manifest.malformed")
 
 mcase("compat-bad-operator", "Only >=, <=, ==, bare token and * parse.",
       manifest(payload=GOOD["payload"], model_compat="~>rm1pe"), "manifest.bad_compat")
@@ -245,7 +298,8 @@ mcase("compat-empty", "An empty constraint does not parse.",
       manifest(payload=GOOD["payload"], firmware_compat=""), "manifest.bad_compat")
 
 write("manifest.json", {
-    "v": 1,
+    "vectors_version": 1,
+    "protocol_version": PROTOCOL_VERSION,
     "description": (
         "Manifest validation vectors. A case with 'raw' supplies the exact bytes to "
         "parse; otherwise encode 'manifest' canonically. 'canonical' is the expected "
@@ -272,9 +326,9 @@ def jframe(cid, desc, tid, sub, obj):
 
 
 jframe("offer", "server -> device: manifest only, no payload bytes.",
-       TID_A, SUB_OFFER, {"manifest": GOOD, "v": 1})
+       TID_A, SUB_OFFER, {"manifest": GOOD, "v": PROTOCOL_VERSION})
 jframe("fetch", "device -> server: request the bundle by manifest hash.",
-       TID_A, SUB_FETCH, {"sha256": BUNDLE_SHA, "v": 1})
+       TID_A, SUB_FETCH, {"sha256": BUNDLE_SHA, "v": PROTOCOL_VERSION})
 
 small = b"tiny bundle bytes"
 fcase("payload-single-chunk-last",
@@ -303,25 +357,25 @@ fcase("payload-chunk-too-large",
 jframe("install-result-installed",
        "Verified, placed, loaded. A readback must follow.",
        TID_A, SUB_INSTALL_RESULT,
-       {"reason": "", "sha256": BUNDLE_SHA, "state": "installed", "v": 1})
+       {"reason": "", "sha256": BUNDLE_SHA, "state": "installed", "v": PROTOCOL_VERSION})
 jframe("install-result-refused",
        "Invariant 3's observable signature: refused means nothing touched the "
        "disk, which is why it is a distinct state from failed.",
        TID_A, SUB_INSTALL_RESULT,
-       {"reason": "verify.refused", "sha256": BUNDLE_SHA, "state": "refused", "v": 1})
+       {"reason": "verify.refused", "sha256": BUNDLE_SHA, "state": "refused", "v": PROTOCOL_VERSION})
 jframe("install-result-noop",
        "Invariant 2: the same manifest pushed twice is a no-op.",
        TID_A, SUB_INSTALL_RESULT,
-       {"reason": "", "sha256": BUNDLE_SHA, "state": "noop", "v": 1})
+       {"reason": "", "sha256": BUNDLE_SHA, "state": "noop", "v": PROTOCOL_VERSION})
 jframe("install-result-failed",
        "Verified but the load failed; the install was rolled back.",
        TID_A, SUB_INSTALL_RESULT,
-       {"reason": "install.load_failed", "sha256": BUNDLE_SHA, "state": "failed", "v": 1})
+       {"reason": "install.load_failed", "sha256": BUNDLE_SHA, "state": "failed", "v": PROTOCOL_VERSION})
 jframe("readback",
        "Invariant 4: what is actually on disk, hashed by the device.",
        TID_A, SUB_READBACK,
        {"entries": [{"path": p, "sha256": sha(d)} for p, d in sorted(PLUGIN_FILES)],
-        "sha256": BUNDLE_SHA, "tree_sha256": BUNDLE_TREE, "v": 1})
+        "sha256": BUNDLE_SHA, "tree_sha256": BUNDLE_TREE, "v": PROTOCOL_VERSION})
 
 fcase("bad-frame-short-body",
       "A 32-byte body cannot carry tid+sub; short reads drop the connection, as "
@@ -335,7 +389,8 @@ fcase("bad-frame-unknown-subtype", "Sub-type 0x05 is not defined in v1.",
       hex=frame(TID_A, 0x05, b"").hex(), code="wire.bad_frame")
 
 write("frames.json", {
-    "v": 1,
+    "vectors_version": 1,
+    "protocol_version": PROTOCOL_VERSION,
     "description": (
         "Wire frame vectors. 'hex' is the complete frame including the rtty envelope "
         "(type 0xF1, uint16 big-endian length) and must round-trip to identical bytes. "
@@ -414,7 +469,8 @@ vcase("gate-unknown-verifier-fails-closed",
       "signed", GOOD, BLOB_BUNDLE, "verify.unconfigured")
 
 write("verify.json", {
-    "v": 1,
+    "vectors_version": 1,
+    "protocol_version": PROTOCOL_VERSION,
     "description": (
         "Verify-gate vectors. Run Gate(verifier, manifest, payload) where payload is "
         "the bytes of vectors/blobs/<payload_blob>, and assert the outcome. Gate order "
@@ -455,7 +511,8 @@ tcase("empty-file",
       [("plugins/msd/empty.py", b"")])
 
 write("treehash.json", {
-    "v": 1,
+    "vectors_version": 1,
+    "protocol_version": PROTOCOL_VERSION,
     "description": (
         "Canonical tree hash vectors. Both sides must compute these identically or "
         "every readback comparison is meaningless. Algorithm: for each regular file, "
@@ -538,7 +595,8 @@ bcase("malformed-not-a-tar", "Not a readable ustar archive.",
       b"this is not a tar archive at all, not even close\n", "bundle.malformed")
 
 write("bundles.json", {
-    "v": 1,
+    "vectors_version": 1,
+    "protocol_version": PROTOCOL_VERSION,
     "description": (
         "Bundle unpacking vectors. Read vectors/blobs/<blob>. A case with 'code' must "
         "be refused with that code before anything is written. A valid case must "
@@ -556,15 +614,16 @@ write("bundles.json", {
 acases = []
 
 
-def acase(cid, desc, m, code=None):
+def acase(cid, desc, m, code=None, installed=0):
     acases.append({
         "id": cid, "description": desc, "manifest": m,
+        "installed_revision": installed,
         "expect": ("refuse" if code else "admit"),
         **({"code": code} if code else {}),
     })
 
 
-acase("admit-reference", "The reference manifest is admitted.", GOOD)
+acase("admit-reference", "The reference manifest is admitted with nothing installed.", GOOD)
 acase("admit-at-cap",
       "A declared size exactly at the 8 MiB ceiling is admitted.",
       manifest(payload={"sha256": BUNDLE_SHA, "size": 8388608}))
@@ -582,19 +641,48 @@ acase("refuse-unsafe-entry",
       "Admission validates the whole manifest, so a traversal entry never "
       "reaches the point of transferring bytes.",
       manifest(entry="plugins/ugpio/../../evil.py", payload=GOOD["payload"]), "manifest.bad_entry")
-acase("refuse-management-capabilities-on-device",
-      "Tier violations are refused before transfer too.",
-      manifest(payload=GOOD["payload"], capabilities=["fleet.admin"]),
-      "manifest.capabilities_not_allowed")
+acase("refuse-sandbox-declaration",
+      "Reserved fields fail closed at admission too.",
+      manifest(payload=GOOD["payload"], sandbox=["net.outbound"]),
+      "manifest.sandbox_not_allowed")
+
+# ----- anti-rollback: an integer comparison, no signing model required -----
+acase("rollback-upgrade-admitted",
+      "A higher revision than the installed one is the normal upgrade path.",
+      manifest(revision=5, payload=GOOD["payload"]), installed=4)
+acase("rollback-first-install-admitted",
+      "No installed revision is 0, so any valid revision is an upgrade.",
+      manifest(revision=1, payload=GOOD["payload"]), installed=0)
+acase("rollback-equal-refused",
+      "Equal is refused, not just lower: re-serving the identical revision is "
+      "the freeze half of the attack class. Idempotent re-push is handled by "
+      "the payload-hash noop path, not by accepting a stale revision.",
+      manifest(revision=4, payload=GOOD["payload"]), "policy.rollback_refused", installed=4)
+acase("rollback-lower-refused",
+      "The downgrade case: a genuinely-authored older plugin with a known flaw, "
+      "re-served. Closed by an integer comparison, independent of any signing "
+      "model -- which is why it lands now rather than with signing.",
+      manifest(revision=2, payload=GOOD["payload"]), "policy.rollback_refused", installed=7)
+acase("rollback-far-lower-refused",
+      "Revision 1 against a long-running install.",
+      manifest(revision=1, payload=GOOD["payload"]), "policy.rollback_refused", installed=999)
+acase("rollback-checked-after-manifest",
+      "A manifest violation is reported even when the revision is also stale, "
+      "so the two implementations cannot disagree about which code comes back.",
+      manifest(revision=1, entry="plugins/atx/acme_relay.py", payload=GOOD["payload"]),
+      "manifest.entry_type_mismatch", installed=9)
 
 write("admission.json", {
-    "v": 1,
+    "vectors_version": 1,
+    "protocol_version": PROTOCOL_VERSION,
     "description": (
-        "Offer-admission vectors. Run admit(manifest) -- the check a device performs "
-        "on plugin.offer, BEFORE sending plugin.fetch and before any payload chunk "
-        "moves. An 'admit' case must pass; a 'refuse' case must refuse with the given "
-        "code and no fetch may be sent. Admission neither sees nor needs the payload, "
-        "which is exactly what distinguishes it from the verify gate."
+        "Offer-admission vectors. Run admit(manifest, installed_revision) -- the check "
+        "a device performs on plugin.offer, BEFORE sending plugin.fetch and before any "
+        "payload chunk moves. An 'admit' case must pass; a 'refuse' case must refuse "
+        "with the given code and no fetch may be sent. installed_revision is the "
+        "revision currently installed for this manifest's name, or 0 if none is. "
+        "Admission neither sees nor needs the payload, which is exactly what "
+        "distinguishes it from the verify gate."
     ),
     "cases": acases,
 })

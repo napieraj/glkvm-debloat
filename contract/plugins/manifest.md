@@ -8,6 +8,7 @@ differs. Validation is defined here once and both sides implement exactly it.
 
 ```yaml
 name: <string>
+revision: <integer>          # monotonic, anti-rollback — mandatory
 type: atx | msd | hid | ugpio | auth
 runtime: device | management
 model_compat: ">=rm1pe"
@@ -16,11 +17,12 @@ entry: plugins/<type>/<name>.py
 payload:
   sha256: <64 lowercase hex>
   size: <bytes>
-signature:            # STUBBED — defined, never populated in v1
-  alg: <deferred>
-  value: <deferred>
-  key_id: <deferred>
-capabilities: []      # management runtime only
+signature:                   # required; shaped for every model, populated by none yet
+  model: hash-only           # required enum; v2 accepts only this value
+  entries: []                # required list; v2 requires it empty
+  threshold: <integer>       # optional
+  expires: <ISO-8601>        # optional
+sandbox: []                  # optional; v2 requires it empty
 ```
 
 ## Field rules
@@ -35,6 +37,30 @@ leading underscores are excluded because the existing `get_plugin_class` in
 `kvmd/plugins/__init__.py` already treats a leading `_` as unknown.
 
 Violation: `manifest.bad_name`.
+
+### `revision` (required)
+
+A monotonic integer, `>= 1`. Violation: `manifest.bad_revision`.
+
+The device refuses any bundle whose `revision` is less than or equal to the
+revision already installed for that `name`. This closes the downgrade and
+freeze attack class — re-serving a genuinely-signed older plugin with a known
+flaw — and it does so **independent of any signing model**, because it is an
+integer comparison and nothing more.
+
+That independence is why it lands now rather than with signing. Even mature
+implementations get this subtly wrong; the referenced research cites a
+rollback-protection bug in go-tuf. A comparison this small is worth owning
+outright rather than inheriting.
+
+The check runs at **offer admission**, before a `fetch` is sent: the device
+already knows its installed revision, so there is no reason to transfer a
+bundle it will reject. The refusal is `install_result` `state:"refused"` with
+`reason:"policy.rollback_refused"` — `refused`, not `failed`, because nothing
+touched the disk.
+
+`revision` is separate from any human-facing version string. It orders
+releases for the machine; it is not required to be meaningful to a person.
 
 ### `type` (required)
 
@@ -110,30 +136,54 @@ any chunk moves — see `wire.md`. Because a dropped transfer restarts from chun
 be refused while it is still a declaration rather than discovered on the last
 chunk.
 
-### `signature` (optional in v1 — the stub)
+### `signature` (required — shaped now, populated later)
 
-If present it is an object; its `alg`, `value` and `key_id` members are strings
-if present. **v1 implementations MUST NOT reject a manifest for a missing,
-empty or unrecognised `signature`, and MUST NOT treat its presence as
-meaningful.** The `hash-only` verifier ignores it entirely.
+```yaml
+signature:
+  model: hash-only     # required
+  entries: []          # required
+  threshold: <integer> # optional
+  expires: <ISO-8601>  # optional
+```
 
-The block exists now purely so that signing lands as an implementation change
-behind the `Verifier` seam and not as a schema migration across a fleet of
-already-deployed devices.
+- `model` — required. **v2 accepts exactly one value, `hash-only`.** Any other
+  value is `manifest.malformed`: a manifest declaring a trust model this
+  implementation does not have is not merely invalid, it is uninterpretable,
+  and guessing at it is precisely the failure this field exists to prevent.
+- `entries` — required list, one entry per signer. **v2 requires it empty.** A
+  non-empty list is `manifest.malformed`, because a v2 implementation cannot
+  check a signature and must not accept a manifest that claims one.
+- `threshold` — optional integer, for a future K-of-N model.
+- `expires` — optional ISO-8601 instant, for future expiring metadata.
 
-When signing lands, a `signed` verifier will refuse a manifest whose signature
-is absent or does not verify against the pinned anchor. That is a verifier-tier
-change and a config change; nothing in this schema moves.
+The block is **required** rather than optional so that every manifest states
+its trust model explicitly. That is what makes the later swap safe: a `signed`
+verifier refuses `model: hash-only` outright, instead of having to infer intent
+from an absent field. An optional block would leave "unsigned" and "signature
+omitted" indistinguishable, which is the ambiguity a downgrade attack lives in.
 
-### `capabilities` (conditional)
+Populating `entries` — algorithms, key custody, threshold policy, transparency
+logs — is the signing module and is explicitly out of this cycle. The shape is
+here so that work is an implementation behind the `Verifier` seam and a config
+change, never a schema migration across a fleet of deployed devices.
 
-An array of strings, each matching `^[a-z][a-z0-9_.]{0,63}$`.
+### `sandbox` (optional — reserved, must be empty)
 
-Permitted **only** when `runtime` is `management`. For `runtime: device` it
-MUST be absent or empty; a non-empty `capabilities` on a device-runtime plugin
-is `manifest.capabilities_not_allowed`. Device plugins draw their blast radius
-from the console they run on, not from a capability grant, and allowing the
-field there would create a second, weaker authorisation story.
+An array declaring what the plugin process itself may reach: filesystem paths,
+network egress, devices. **v2 requires it absent or empty.** A non-empty value
+is `manifest.sandbox_not_allowed` — the field is reserved so the vocabulary can
+land without a schema migration, and refused until that vocabulary exists,
+because accepting a declaration nothing enforces would be worse than having no
+field at all.
+
+It is deliberately **not** called `capabilities`. kazbek already has a
+capability vocabulary — `permission.Key` values such as `device.read` and
+`auth.write`, which `middleware.Require` calls "capability keys" and which are
+scoped to *subjects*: which user may perform which action. What this field will
+describe is entirely different: which resources a plugin *process* may touch.
+Two vocabularies under one word, in a system whose whole authorization model
+turns on that word, is a bug waiting to be written by someone who reads the
+wrong one.
 
 ## Unknown fields
 

@@ -98,5 +98,6 @@
     }
   ],
   "description": "Canonical tree hash vectors. Both sides must compute these identically or every readback comparison is meaningless. Algorithm: for each regular file, sha256_hex(content) + two spaces + POSIX relative path + newline; concatenate in bytewise path order; sha256_hex the result.",
-  "v": 1
+  "protocol_version": 2,
+  "vectors_version": 1
 }

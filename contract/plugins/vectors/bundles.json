@@ -54,5 +54,6 @@
     }
   ],
   "description": "Bundle unpacking vectors. Read vectors/blobs/<blob>. A case with 'code' must be refused with that code before anything is written. A valid case must unpack to exactly 'files' and hash to 'tree_sha256'. These checks are structural and run regardless of which Verifier is configured — they are what makes a noop verifier survivable.",
-  "v": 1
+  "protocol_version": 2,
+  "vectors_version": 1
 }

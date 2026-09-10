@@ -112,6 +112,13 @@ post-gate observations are identical. Trust is the verification result, never
 the delivery channel — so there is no code path where "it arrived locally" or
 "it came from the server" is an input to the decision.
 
+**Defence in depth is the second half of this invariant.** The server refuses
+to push a plugin it cannot itself verify, *and* the device independently
+re-verifies on receipt. The server verifying is not sufficient: a device that
+trusts the server's verdict has made the delivery channel the trust anchor
+again, which is exactly what invariant 5 exists to prevent. Both sides run the
+same gate against the same contract, and neither defers to the other.
+
 Status: **half** (device), and it is the invariant that makes "local +
 centralized" free rather than a second mechanism.
 
@@ -149,3 +156,15 @@ Status: **now** (parse) + **half** (each side refuses the other's tier).
   refused before a `fetch` is sent, so an untransferable bundle is rejected
   while it is still a claim. Distinct from the gate's assembled-length check,
   which cannot run until the bytes have already arrived.
+- **Anti-rollback** — an offer whose `revision` is less than or equal to the
+  installed revision for that `name` is refused at admission with
+  `policy.rollback_refused`, and the install_result state is `refused` because
+  nothing touched the disk. This closes the downgrade and freeze class
+  independent of any signing model: it is an integer comparison. Mutation:
+  make the comparison `<` instead of `<=`, or drop it entirely, and the equal-
+  and lower-revision cases must go red.
+- **Reserved fields fail closed** — `signature.model` accepts exactly
+  `hash-only` and `signature.entries` must be empty; `sandbox` must be empty.
+  A manifest claiming a trust model or a sandbox grant this implementation
+  cannot honour is refused, never accepted-and-ignored. Mutation: accept any
+  model value, or allow a non-empty `entries`, and the enum cases must go red.

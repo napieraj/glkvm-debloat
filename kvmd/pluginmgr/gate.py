@@ -24,6 +24,7 @@ from .errors import RefusalError
 from .errors import CODE_MALFORMED
 from .errors import CODE_PAYLOAD_SIZE_MISMATCH
 from .errors import CODE_VERIFY_UNCONFIGURED
+from .errors import CODE_POLICY_ROLLBACK_REFUSED
 from .manifest import Manifest
 from .verifier import Verifier
 from .verifier import resolve
@@ -82,7 +83,7 @@ def gate_named(name: str, manifest: (Manifest | None), payload: bytes) -> None:
     gate(resolve(name), manifest, payload)
 
 
-def admit_offer(manifest: (Manifest | None)) -> None:
+def admit_offer(manifest: (Manifest | None), installed_revision: int=0) -> None:
     """
     Decides whether a plugin.offer is worth transferring, before a plugin.fetch
     is sent and before any payload chunk moves.
@@ -102,3 +103,26 @@ def admit_offer(manifest: (Manifest | None)) -> None:
     if manifest is None:
         raise RefusalError(CODE_MALFORMED, "no manifest")
     manifest.validate()
+    check_revision(manifest, installed_revision)
+
+
+def check_revision(manifest: Manifest, installed_revision: int) -> None:
+    """
+    Closes the downgrade and freeze attack class: re-serving a
+    genuinely-authored older plugin with a known flaw, or re-serving the
+    current one forever to prevent an upgrade.
+
+    It is an integer comparison and nothing more, which is exactly why it lands
+    now rather than with signing -- it needs no trust model to work, and even
+    mature implementations get it subtly wrong when it is buried inside one.
+
+    Equal is refused, not just lower: an identical revision is the freeze half
+    of the class. Idempotent re-push is handled by the payload-hash noop path,
+    which compares what is actually installed, not by accepting a stale
+    revision.
+    """
+
+    if manifest.revision <= installed_revision:
+        raise RefusalError(CODE_POLICY_ROLLBACK_REFUSED,
+                           f"revision {manifest.revision} is not newer than "
+                           f"the installed {installed_revision}")

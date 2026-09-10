@@ -9,8 +9,9 @@ vector asserts. Both implementations use exactly these strings.
 | Code | Meaning |
 |------|---------|
 | `manifest.malformed` | Not canonical JSON, not an object, missing a required field, or carrying an unknown top-level field. |
-| `manifest.unsupported_version` | `v` is absent or not `1`. |
+| `manifest.unsupported_version` | `v` is absent or not the current protocol version. |
 | `manifest.bad_name` | `name` fails `^[a-z][a-z0-9_]{0,31}$`. |
+| `manifest.bad_revision` | `revision` is absent, non-integer, or `< 1`. |
 | `manifest.bad_type` | `type` is not one of `atx`, `msd`, `hid`, `ugpio`, `auth`. |
 | `manifest.bad_runtime` | `runtime` is not `device` or `management`. |
 | `manifest.bad_entry` | `entry` fails the entry pattern. |
@@ -20,8 +21,7 @@ vector asserts. Both implementations use exactly these strings.
 | `manifest.bad_payload_hash` | `payload.sha256` is not 64 lowercase hex. |
 | `manifest.bad_payload_size` | `payload.size` is absent, non-integer, or `< 1`. |
 | `manifest.payload_too_large` | `payload.size` exceeds 8388608. |
-| `manifest.capabilities_not_allowed` | Non-empty `capabilities` with `runtime: device`. |
-| `manifest.bad_capability` | A capability string fails `^[a-z][a-z0-9_.]{0,63}$`. |
+| `manifest.sandbox_not_allowed` | Non-empty `sandbox`. Reserved until a vocabulary exists; a declaration nothing enforces is worse than no field. |
 
 ## Payload checks (gate step 2, and assembly)
 
@@ -60,6 +60,7 @@ vector asserts. Both implementations use exactly these strings.
 
 | Code | Meaning |
 |------|---------|
+| `policy.rollback_refused` | `revision` is less than or equal to the installed revision for this `name`. Refused at admission, before any bytes move; the install_result state is `refused`, because nothing touched the disk. |
 | `policy.wrong_runtime` | A device was offered `runtime: management`, or the server was asked to load `runtime: device` in-process. Invariant 6. |
 | `policy.incompatible_model` | `model_compat` excludes this device. |
 | `policy.incompatible_firmware` | `firmware_compat` excludes this firmware. |

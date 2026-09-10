@@ -13,7 +13,12 @@
           "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
           "size": 10240
         },
+        "revision": 1,
         "runtime": "device",
+        "signature": {
+          "entries": [],
+          "model": "hash-only"
+        },
         "type": "ugpio"
       },
       "payload_blob": "reference-bundle.tar",
@@ -33,7 +38,12 @@
           "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
           "size": 10240
         },
+        "revision": 1,
         "runtime": "device",
+        "signature": {
+          "entries": [],
+          "model": "hash-only"
+        },
         "type": "ugpio"
       },
       "payload_blob": "reference-bundle-corrupt.tar",
@@ -52,7 +62,12 @@
           "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
           "size": 10240
         },
+        "revision": 1,
         "runtime": "device",
+        "signature": {
+          "entries": [],
+          "model": "hash-only"
+        },
         "type": "ugpio"
       },
       "payload_blob": "reference-bundle-corrupt.tar",
@@ -72,7 +87,12 @@
           "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
           "size": 10240
         },
+        "revision": 1,
         "runtime": "device",
+        "signature": {
+          "entries": [],
+          "model": "hash-only"
+        },
         "type": "ugpio"
       },
       "payload_blob": "reference-bundle.tar",
@@ -92,7 +112,12 @@
           "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
           "size": 10241
         },
+        "revision": 1,
         "runtime": "device",
+        "signature": {
+          "entries": [],
+          "model": "hash-only"
+        },
         "type": "ugpio"
       },
       "payload_blob": "reference-bundle.tar",
@@ -112,7 +137,12 @@
           "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
           "size": 10240
         },
+        "revision": 1,
         "runtime": "device",
+        "signature": {
+          "entries": [],
+          "model": "hash-only"
+        },
         "type": "ugpio"
       },
       "payload_blob": "reference-bundle.tar",
@@ -132,7 +162,12 @@
           "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
           "size": 10240
         },
+        "revision": 1,
         "runtime": "device",
+        "signature": {
+          "entries": [],
+          "model": "hash-only"
+        },
         "type": "ugpio"
       },
       "payload_blob": "reference-bundle.tar",
@@ -152,7 +187,12 @@
           "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
           "size": 99
         },
+        "revision": 1,
         "runtime": "device",
+        "signature": {
+          "entries": [],
+          "model": "hash-only"
+        },
         "type": "ugpio"
       },
       "payload_blob": "reference-bundle.tar",
@@ -172,7 +212,12 @@
           "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
           "size": 99
         },
+        "revision": 1,
         "runtime": "device",
+        "signature": {
+          "entries": [],
+          "model": "hash-only"
+        },
         "type": "ugpio"
       },
       "payload_blob": "reference-bundle.tar",
@@ -192,7 +237,12 @@
           "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
           "size": 10240
         },
+        "revision": 1,
         "runtime": "device",
+        "signature": {
+          "entries": [],
+          "model": "hash-only"
+        },
         "type": "ugpio"
       },
       "payload_blob": "reference-bundle.tar",
@@ -212,7 +262,12 @@
           "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
           "size": 10240
         },
+        "revision": 1,
         "runtime": "device",
+        "signature": {
+          "entries": [],
+          "model": "hash-only"
+        },
         "type": "ugpio"
       },
       "payload_blob": "reference-bundle.tar",
@@ -220,5 +275,6 @@
     }
   ],
   "description": "Verify-gate vectors. Run Gate(verifier, manifest, payload) where payload is the bytes of vectors/blobs/<payload_blob>, and assert the outcome. Gate order is 1) validate manifest 2) check payload length against manifest.payload.size 3) call the verifier; the ordering cases pin that precedence down.",
-  "v": 1
+  "protocol_version": 2,
+  "vectors_version": 1
 }
