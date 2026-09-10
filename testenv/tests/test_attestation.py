@@ -135,6 +135,24 @@ def test_attest__no_vendor_firmware_egress() -> None:
     assert not hits, f"vendor firmware egress is back: {hits}"
 
 
+def test_attest__no_route_writes_the_flash_staging_path() -> None:
+    # lean-plan step 9. POST /upgrade/upload wrote request-body bytes to
+    # /userdata/update.img, the path the vendor's own updateEngine reads with
+    # --image_url. kvmd no longer has an apply path, but the READ half is two
+    # device binaries this daemon used to invoke by name -- updateEngine and
+    # swupdate_start.sh -- neither of which is in this repo and neither of
+    # which the strip can remove. So the route was not an orphan; it was the
+    # remote-write half of a flash primitive whose reader lives outside the
+    # tree, staged on a partition that survives a rootfs-only reflash.
+    #
+    # If enrolment ever needs to stage an image, it verifies a signature
+    # against a pin the device holds first. This fails on any handler that
+    # opens that path for writing again.
+    hits = _grep(r"/userdata/update\.img|UPGRADE_FILE|/upgrade/upload", "kvmd", "web",
+                 exts=(".py", ".js", ".pug", ".html", ".css", ".conf"))
+    assert not hits, f"the flash staging write is back: {hits}"
+
+
 def test_attest__no_factory_reset_route() -> None:
     # lean-plan step 9. A factory reset clears the launcher pin (design 3.3), so
     # one authenticated GET un-enrolled the device. It must not come back as a

@@ -16,8 +16,6 @@ from ....logging import get_logger
 
 from ....htserver import exposed_http, make_json_exception, make_json_response
 
-UPGRADE_DIR = "/userdata/"
-UPGRADE_FILE = "update.img"
 LOG_DIR = "/tmp/log"
 # 与 aiohttp Application 默认 client_max_size(1MiB) 对齐；超出由框架返回 413
 _FRONTEND_LOG_MAX_BYTES = 1024 * 1024
@@ -581,57 +579,6 @@ class UpgradeApi:
         self.__model = model
 
         self.__update_engine = UpdateEngine()
-
-    def __check_free_space(self, path: str, required_size: int) -> tuple[bool, str]:
-        """检查指定路径所在分区的剩余空间是否足够
-        
-        Args:
-            path: 要检查的路径
-            required_size: 所需空间大小(字节)
-            
-        Returns:
-            tuple[bool, str]: (是否有足够空间, 错误信息)
-        """
-        try:
-            statvfs = os.statvfs(path)
-            free_space = statvfs.f_frsize * statvfs.f_bavail
-            if free_space < required_size:
-                return False, f"Not enough space in {path}. Required: {required_size} bytes, Available: {free_space} bytes"
-            return True, ""
-        except Exception as e:
-            return False, f"Failed to check free space: {str(e)}"
-
-    @exposed_http("POST", "/upgrade/upload")
-    async def __upload_handler(self, request: web.Request) -> web.Response:
-        reader = await request.multipart()
-        field = await reader.next()
-        if field and field.name == "file":
-            filename = field.filename
-            # 树飞要求上传固件文件时，将__total_firmware_size设置为0
-            self.__total_firmware_size = 0
-            size = 0
-
-            # 检查上传文件是否超过分区剩余空间
-            content_length = request.headers.get('Content-Length')
-            if content_length is None:
-                return make_json_exception("Content-Length header is required", 400)
-            content_length = int(content_length)
-            get_logger(0).info("Content-Length: %s", content_length)
-            has_space, error_msg = self.__check_free_space(UPGRADE_DIR, content_length)
-            if not has_space:
-                return make_json_exception(error_msg, 413)
-
-            # ignore filename ,we only use update.img
-            with open(f"{UPGRADE_DIR}{UPGRADE_FILE}", "wb") as f:
-                while True:
-                    chunk = await field.read_chunk()
-                    if not chunk:
-                        break
-                    size += len(chunk)
-                    f.write(chunk)
-            get_logger(0).info("Firmware file uploaded, size: %d bytes", size)
-            return make_json_response({"filename": filename, "size": size})
-        return web.HTTPBadRequest(text="No file uploaded")
 
     @exposed_http("GET", "/upgrade/version")
     async def __version_handler(self, request: web.Request) -> web.Response:

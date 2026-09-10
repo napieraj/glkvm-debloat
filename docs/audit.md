@@ -18,7 +18,7 @@ Every security defect found in it lives in code PiKVM never wrote.
 | API layer growth | **6.5×** — 11,436 lines of route code against upstream's 1,769 |
 | New tests for it | **0** — roughly 9,700 added API lines ship with no test of their own |
 | Lint, identical config | **742** violations of the fork's own checked-in flake8 rules (upstream: none) |
-| Findings, all fork-only | **20** — three reach root, two of them without credentials; one is structural rather than a defect; one reaches beneath the OS |
+| Findings, all fork-only | **21** — three reach root, two of them without credentials; one is structural rather than a defect; two reach beneath the OS, and one of those is a disclosure item this branch cannot fix |
 
 ---
 
@@ -80,7 +80,7 @@ whitespace-on-blank-line, 75 missing-space-after-comma and 71 unused imports.
 
 ---
 
-## 3. Security — twenty findings, three of them reach root
+## 3. Security — twenty-one findings, three of them reach root
 
 Severity here is consequence on a device whose stated job is out-of-band access to
 other machines. A defect that yields a root shell on the KVM yields the console of
@@ -189,13 +189,34 @@ a password change, a factory reset, and the rest of the debloat. Every other
 finding here is recoverable by reflashing; this one is the mechanism by which
 reflashing is the attack.
 
-Model `rmq1` skipped both checks unconditionally — the handler's first branch is
-`if self.__model == "rmq1": pass` — so on that hardware there was no
-verification to skip.
-
 *fork-only · verified · `api/upgrade.py:721–723` (parameter), `:734–736`
-(the skip), `:726` (the rmq1 branch), as found at 2a2fc1d; deleted on this
-branch with the route*
+(the skip), as found at 2a2fc1d; deleted on this branch with the route*
+
+### HIGH — On one model there was no signature check to bypass at all
+
+The same handler opened with `if self.__model == "rmq1": pass`. On that model
+the verify-and-validate block was skipped unconditionally — not by a parameter,
+not by an option, by the model string — and `start_upgrade()` went straight to
+`swupdate_start.sh -i /userdata/update.img`. An authenticated session on an
+rmq1 flashed whatever had been uploaded.
+
+**This one is not fixed by deleting the route.** Every finding above describes
+something a fleet operator can remove from their own units by running a
+debloated build. This describes shipped behaviour on hardware other people own,
+who are not running this build and cannot patch it, and for whom the route is
+present and reachable. Deleting it here changes nothing for them. It is
+therefore the finding in this document whose remedy is disclosure to the vendor
+rather than a commit, and it is tracked as an open disclosure item rather than
+as FIXED.
+
+The severity is also worse than it reads. Firmware sits beneath every other
+control in this audit: an unsigned image survives a password change, a factory
+reset and the whole debloat, which makes reflashing the attack rather than the
+recovery.
+
+*fork-only · verified · `api/upgrade.py:726` (the branch), `:1189`
+(`swupdate_start.sh`), as found at 2a2fc1d · DISCLOSURE ITEM, not fixed by this
+branch*
 
 ### HIGH — A route hands out the device's TLS private key
 
@@ -854,6 +875,21 @@ So on any device that was running the pre-fix firmware:
 rewrites the stored hash. Until it is changed, the device carries a cheaply crackable
 hash of its current password regardless of the fix, and the current interim posture is
 password-only.
+
+## OPERATOR ACTION REQUIRED — rmq1 units, and units this build does not reach
+
+Two of the findings above are not closed by running a debloated kvmd.
+
+**If you operate an rmq1.** Stock firmware flashes an uploaded image with no
+signature verification, on an authenticated request. Any session that reaches
+`/api/` is a firmware-write. Until the vendor ships a fix, keep the API off
+untrusted networks — the stock nginx block that hides `/api/*` by default is
+doing real work on that model, so do not remove it — and treat any credential
+that has ever touched such a unit as able to have replaced its firmware.
+
+**If you operate stock firmware generally.** The debloat removes these routes
+from the units that run it and from nothing else. Everything in section 3
+remains present and reachable on a stock device at 4.82.
 
 ## Verification addendum (2026-09-09)
 

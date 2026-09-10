@@ -107,13 +107,22 @@
 >
 > So: an incomplete environment does not merely hide tests, it *misclassifies*
 > them, and it does so silently. Any claim that the suite passes must be made
-> against the COMPLETE testenv and on BOTH interpreters. tox pins
+> against the COMPLETE testenv and on BOTH interpreters. THIS HAS NOT HAPPENED:
+> every count in this document was produced on 3.11 only, and the 3.12 half of
+> the instruction was reported as done because tox.ini declares it. Treat all of
+> them as provisional until one `make tox` on a Docker host settles it —
+> `tarfile`, dict ordering and stdlib hash details have all moved across recent
+> minors. tox pins
 > basepython = python3.12 (testenv/tox.ini:6) while a bare `python3` on a
 > workstation is often 3.11, and the two disagree about which optional test
 > dependencies are installed.
 >
 > The reference numbers, for comparison after the strip: **666 passed, 0
-> failed, 0 errors** on python3.12 with the environment fully staged. To stage
+> failed, 0 errors** with the environment fully staged — recorded at the time as
+> "on python3.12", but see hazard 6: the interpreter that actually ran was 3.11.
+> Nothing in this project has yet been measured on the declared 3.12. Quote the
+> dep set with the count, not just the interpreter: a run missing pytest-aiohttp,
+> pytest-mock or python-pam reports failures, not skips. To stage
 > it outside the container, follow the `tox` recipe in the Makefile (85-91):
 > the config copy, the platform file, main.yaml from the platform variant,
 > and the extras/keymaps/configs.default paths, plus pytest-mock,
@@ -231,19 +240,33 @@ Add the button row after the login button (web/login/index.pug:53-55 / web/login
 
 ### 13. Build kvmd/apps/beacon/ as a plain module with an init.d script, not a systemd unit
 
-> **HAZARD — `POST /upgrade/upload` is a write with no reader.** Step 9 deleted
-> `POST /upgrade/start`, so nothing in the tree consumes what upload writes to
-> `/userdata/update.img`, and step 9 also deleted the only UI that called it.
-> What is left is an authenticated arbitrary-file write, of attacker-chosen
-> content, at a path whose whole purpose is to be flashed. It is inert only for
-> as long as no apply path exists.
+> **RESOLVED — `POST /upgrade/upload` is deleted, and "no reader" was wrong.**
+> It was retained one commit on the authority of the step-9 KEEP list, which
+> was written while `/upgrade/start` still consumed the uploaded image. Deleting
+> the consumer made the entry stale, and re-deriving a plan means re-deriving
+> the REASONING, not only the line numbers.
 >
-> The enrolment arc owns the decision, and there are only two acceptable
-> outcomes: give it an apply path that verifies a signature against a pin the
-> device holds — never a `skip_verify`-shaped escape, see the HIGH finding in
-> `docs/audit.md` — or delete the route. Leaving it as-is is the third option
-> and it is not one: the next person to add an apply path inherits an upload
-> surface nobody re-reviewed.
+> The "no consumer" claim was also scoped to this repo, which is not the device
+> — the rtty mistake again. The read half is two binaries this daemon invoked
+> by name and neither tree ships: `updateEngine --image_url=/userdata/update.img
+> --misc=update` on most models, `swupdate_start.sh -i /userdata/update.img` on
+> rmq1. `--misc=update` writes the Rockchip misc partition, which is a
+> BOOTLOADER-facing flag, so the reader is not even confined to userspace.
+> `/userdata` is persistent (it also holds the MSD images and the logs), so a
+> staged image survives a rootfs-only reflash, which puts it in the same
+> device-verifiable class as the residual `authorized_keys` and cron entries.
+>
+> NOT ESTABLISHED, and it needs the OS image rather than either repo: whether
+> anything picks up `/userdata/update.img` WITHOUT an explicit trigger — a
+> boot-time scan, a recovery path, or U-Boot's own boot script. This container's
+> network policy blocks `fw.gl-inet.com` (403 at CONNECT), so the firmware could
+> not be fetched and unpacked here. Do it where an image is reachable, and grep
+> `/etc/init.d/S*`, the recovery scripts and the U-Boot environment for that
+> path before treating the staging area as inert.
+>
+> If enrolment needs to stage an image it BUILDS a pinned-signature path; it
+> does not inherit this one. Ratcheted by
+> `test_attest__no_route_writes_the_flash_staging_path`.
 
 
 > **HAZARD — enrolment must not re-open CRITICAL 3.** `GET /init/init` is deleted,

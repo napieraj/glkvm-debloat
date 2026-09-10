@@ -116,7 +116,6 @@ POST /system/time auth=True usc=True exe=-
 POST /system/timezone auth=True usc=True exe=-
 POST /upgrade/edid auth=True usc=True exe=-
 POST /upgrade/log auth=True usc=True exe=-
-POST /upgrade/upload auth=True usc=True exe=-
 POST /wol/add auth=True usc=True exe=-
 POST /wol/remove auth=True usc=True exe=-
 POST /wol/wake auth=True usc=True exe=-
