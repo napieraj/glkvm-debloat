@@ -127,8 +127,17 @@ async def run_command(
     
     if check and process.returncode != 0:
         raise RuntimeError(f"{error_msg}: {stderr_text}")
-    
-    return process.returncode, stdout_text, stderr_text
+
+    # communicate() returns only after the child has exited, so returncode is
+    # set by here -- asyncio types it `int | None` because it is None while the
+    # process is still running. Asserted rather than coerced with `or -1`: this
+    # value is the WebAuthn signature gate (plugins/auth/webauthn.py reads
+    # `retcode == 0` from it) and inventing a status for a case that cannot
+    # happen would hide it if it ever did. An AssertionError here propagates
+    # into the caller's `except Exception`, which fails closed.
+    retcode = process.returncode
+    assert retcode is not None
+    return retcode, stdout_text, stderr_text
 
 
 async def run_shell(
@@ -162,5 +171,14 @@ async def run_shell(
     
     if check and process.returncode != 0:
         raise RuntimeError(f"{error_msg}: {stderr_text}")
-    
-    return process.returncode, stdout_text, stderr_text
+
+    # communicate() returns only after the child has exited, so returncode is
+    # set by here -- asyncio types it `int | None` because it is None while the
+    # process is still running. Asserted rather than coerced with `or -1`: this
+    # value is the WebAuthn signature gate (plugins/auth/webauthn.py reads
+    # `retcode == 0` from it) and inventing a status for a case that cannot
+    # happen would hide it if it ever did. An AssertionError here propagates
+    # into the caller's `except Exception`, which fails closed.
+    retcode = process.returncode
+    assert retcode is not None
+    return retcode, stdout_text, stderr_text
