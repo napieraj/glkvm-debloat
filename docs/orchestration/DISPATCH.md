@@ -1,4 +1,17 @@
-# Dispatch — one brief per worker session
+# Dispatch briefs — HISTORICAL, never delivered
+
+**These were never sent.** They were written for three worker sessions when
+this orchestrator had no way to message them, on the assumption someone would
+paste them in. Nobody did, the sessions stayed idle, and the work was done
+here instead. Every branch they refer to has since been merged into the
+integration branch or resolved.
+
+Kept only because the reasoning about who should own which contended file is
+still sound if parallel sessions are ever restarted. Do not action it as
+written — the file assignments and branch states are stale.
+
+---
+
 
 The orchestrator cannot message sessions (no `send_message` in its toolset) and
 cannot push to a branch other than its own or add `napieraj/provision` (both
