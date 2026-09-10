@@ -7,15 +7,19 @@ yet symmetric. It is an index with reasons, not a specification — the
 specification is `contract/plugins/`, and where this document and that
 directory disagree, that directory wins.
 
-Measured against `claude/repo-status-report-6vi5r1` at `030b52b` in
-`glkvm-debloat` and at `8853e50` in `kazbek` (a local branch of the same name,
-ahead of `origin/claude/new-session-2w6w30`). The branch was moving while this
-was written; re-derive before acting on any figure here. Environment for every count:
+Measured against `claude/repo-status-report-6vi5r1` at `1355993` in
+`glkvm-debloat` and at `450ca39` in `kazbek` — the pushed tip of that branch in
+each repo. The branch moves several times a day; re-derive before acting on any
+figure here, and prefer the recompute commands over the values quoted beside
+them. Environment for every count:
 Python **3.11.15**, `pytest 9.1.1`, reconstructed virtualenv rather than the
 staged `testenv`, invoked as
 `PYTHONPATH=/home/user/glkvm-debloat <venv>/bin/python -m pytest <path> -q -p no:cacheprovider`;
-Go **1.24.7**, `go test -count=1 ./internal/plugins/`. Named because a missing
-test dependency presents here as a failure and not as a skip.
+Go **1.24.7** locally, against a workflow that pins **1.24.4**. Named because a
+missing test dependency presents here as a failure and not as a skip, and because
+this virtualenv is **not** the staged `testenv` — see
+[`../testing.md`](../testing.md) for the one place that difference is known to
+change which code path a test exercises.
 
 ---
 
@@ -28,14 +32,26 @@ test dependency presents here as a failure and not as a skip.
 
 Neither repository depends on the other. They meet only at
 `contract/plugins/`, which is vendored **byte-identically** into both. At the
-refs above the two copies are byte-identical — verified with a recursive diff of
-the two trees — and `CONTRACT-SHA256` recomputes in both to
-`d14ad81fadd7862449bf24e8fdf69c82f6f242e098162ebb9f34299faa5d5d72`.
+refs above the two copies are byte-identical, verified with a recursive diff of
+the two trees.
 
-That value moves with any change to the spec files or the vectors -- it moved
-twice on 2026-09-10 alone. Do not trust a hash quoted in prose; recompute with
-`python contract/plugins/tools/contracthash.py contract/plugins` and compare
-against `contract/plugins/CONTRACT-SHA256`, which is what the suite asserts.
+**The tree hash is deliberately not quoted in this document.** It moves with any
+change to a spec file or a vector, and it moved three times on 2026-09-10 alone
+(`c2dc4976…` → `4888f9ea…` → `d14ad81f…`). An earlier draft pinned a value that
+was stale before it was committed, which is the argument for the recompute rather
+than for a more careful pin:
+
+```sh
+python3 contract/plugins/tools/contracthash.py contract/plugins
+cat contract/plugins/CONTRACT-SHA256                   # must be identical
+diff -r contract/plugins ../kazbek/contract/plugins    # must be empty
+```
+
+The first two agreeing is what each repo's `test_contract_sha256` asserts. The
+third is what **nothing** asserts, because neither repo can see the other: the
+hash proves a repo did not edit its own copy without updating the record, and it
+proves nothing about whether the two copies are the same. Run the diff by hand
+whenever the contract changes.
 
 The device half lives in `kvmd/pluginmgr/` and not in `kvmd/plugins/` on
 purpose. `kvmd/plugins/` is the plugin *tree* that `get_plugin_class()` imports
@@ -301,9 +317,20 @@ The transport underneath them did not: `Device.WriteMsg` in `kazbek`'s
 is frame desynchronisation rather than truncation — the peer reads 4464 bytes
 as the message and parses the remaining ~65k as further frames. Fixed in
 `98250c3`; the plugin layer had been correct and the layer beneath it had not.
-**[reported]**, from that commit and from
-`docs/orchestration/FINDINGS-plugin-contract.md` §4 and its resolution; the
-reproduction was over `net.Pipe` and is not re-derived here.
+The three regression tests pass: `TestWriteMsgRefusesBodiesTheEnvelopeCannotDescribe`,
+`TestWriteMsgDeclaresTheLengthItWrites` and `TestWriteMsgCountsTheSidTowardTheBound`.
+**[verified here]** for the tests passing; **[reported]** for the 70000 → 4464
+reproduction itself, which was measured over `net.Pipe` and is not re-derived
+here.
+
+Worth carrying wherever mutation discipline is written down: the first draft of
+those tests **hung** under the remove-the-bound mutation instead of failing,
+because `net.Pipe` is unbuffered and an unrefused oversized write blocks on a
+pipe nobody reads. A hung test is not a red test — in CI it reads as
+infrastructure trouble rather than a caught regression. Both tests now race the
+write against a deadline, and the boundary test deadlines its read for the
+symmetric reason: a bound that is too *strict* writes nothing, so an undeadlined
+read hangs just as silently.
 
 ---
 
@@ -402,10 +429,13 @@ anchor again, which is exactly what invariant 5 exists to prevent.
 
 | | |
 |---|---|
-| Python `pluginmgr` suite | **146 passed** at `030b52b` |
-| Go `internal/plugins` | `ok rttys/internal/plugins` at `8853e50`; `go build ./...` exits 0 |
+| Python `pluginmgr` suite | **150 passed** at `1355993` |
+| Whole Python suite | **1127 passed, 2 skipped** at `1355993` (`pytest testenv/tests kvmd`) |
+| Go `internal/authz`, `internal/plugins`, `log` | all `ok` at `450ca39`; `go build ./...` exits 0; `gofmt -l` and `go vet` clean |
+| Go `internal/server`, security tests by name | `ok` — `TestAuthzSubjectFailsClosed`, `TestSubjectIDIsStableAcrossRename`, `TestHTTPProxyAddrIsLoopbackOnly`, three `TestWriteMsg` |
+| Go `internal/server`, whole package | **FAILS** in 0.015 s — `TestRttysStress` panics on uninitialised global config; see [`../ci.md`](../ci.md) |
 | Contract byte-identity | verified by recursive diff between the two vendored trees |
-| `CONTRACT-SHA256` | `d14ad81f…`, recomputes correctly in both repos |
+| Contract hash | recomputes to the recorded value in both repos |
 | Vector regeneration | reproducible — `genvectors.py` reproduces `vectors/` exactly |
 
 What is built: the manifest schema and its validation, canonical JSON, the wire
@@ -425,6 +455,53 @@ vocabulary and `signature.model` has one accepted value, both by decision
 implementation behind an existing seam rather than a schema migration across a
 fleet.
 
+### 9.1 What was never enforced, and now partly is
+
+Until 2026-09-10 **neither** of these suites ran in continuous integration.
+`glkvm-debloat`'s only test workflow was gated on a branch that has never
+existed, and `kazbek` had no `go test` or `go vet` anywhere. Every count in the
+table above was, for the whole life of both forks, a thing someone ran by hand or
+did not run at all. An audit pass found twenty-four load-bearing checks whose
+mutations leave a suite green; an unrun suite is what that decays from. Both gaps
+are fixed, on one branch each. [`../ci.md`](../ci.md) says what runs where and
+what still has to be propagated.
+
+### 9.2 `hash-only` is now mutation-covered at one truncation length, not all
+
+`HashOnlyVerifier.verify` is the whole of authenticity at the v1 floor, and an
+audit found its digest comparison could be truncated to two hex characters with
+the suite still green. `252c488` added a test that searches for a payload sharing
+a one-byte digest prefix with the honest one, so the `[:2]` mutation now reddens
+exactly one test.
+
+That first test closed `[:2]` and nothing else. Searching for a payload with a
+longer shared prefix is not feasible — four shared hex characters is ~65,000
+candidates, eight is ~4 billion — so the mutation has to come from the other
+side: hold the payload fixed and perturb the **declared** digest at one
+position. `9e8f636` does that, parametrised over indices {0, 1, 7, 31, 62, 63}.
+Differing only at index 63 defeats every `[:n]` for n < 64 at once.
+
+Re-measured at `f22e718` with bytecode disabled against a baseline of 155:
+
+| `if got[:n] != manifest.payload.sha256[:n]` | `pluginmgr` suite |
+|---|---|
+| n = 2 | **4 failed** |
+| n = 8 | **3 failed** |
+| n = 32 | **2 failed** |
+| n = 63 | **1 failed** |
+
+`n = 8` was named in `252c488`'s own message as a surviving mutation and went
+unclosed by the test written for it — a check that fires on the one case its
+author had in mind, which is the failure this whole document is about.
+
+The way out is not a longer search. Mutate the **declared** digest instead of
+hunting for a payload: take the honest payload, and for each of several positions
+`k` in its hex digest, build a manifest whose `payload.sha256` differs from the
+truth only at position `k`, and assert each is refused. A truncated comparison
+cannot see a difference past its cut, so positions 31, 62 and 63 redden every
+truncation length. Drafted and measured — 10 cases, green unmutated, and red under
+`n` = 2, 8, 32 and 63 — but not landed.
+
 ---
 
 ## 10. Where to read next
@@ -441,5 +518,9 @@ fleet.
 - `contract/plugins/errors.md` — the refusal codes.
 - [`admission.md`](admission.md) — what a bundle must be before anything reaches
   the disk, and why the import-precedence rule exists.
+- [`../ci.md`](../ci.md) — what runs in CI, on which branches, and the two
+  topology traps that kept the suite from running at all.
+- [`../testing.md`](../testing.md) — the dependency set that actually works here,
+  and why counts from it are provisional.
 - `docs/modules/plugins.md` in `kazbek` — the module spec and what was
   deliberately deferred to the signing module.

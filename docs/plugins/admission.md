@@ -7,16 +7,19 @@ import in preference to the declared source — why the rule exists and what
 would justify changing it.
 
 Every line number and every count below was re-derived against
-`claude/repo-status-report-6vi5r1` at `030b52b` in `glkvm-debloat` and at
-`8853e50` in `kazbek` (a local branch of the same name, ahead of
-`origin/claude/new-session-2w6w30`). The branch was moving while this was
-written; re-derive before acting on any figure here.
+`claude/repo-status-report-6vi5r1` at `1355993` in `glkvm-debloat` and at
+`450ca39` in `kazbek`. Both are the pushed tip of that branch in their repo.
+The branch has moved several times a day while this was written; re-derive
+before acting on any figure here, and prefer the recompute commands given
+over the values quoted beside them.
 
 Environment, named because a missing test dependency presents here as a failure
 and not as a skip: Python **3.11.15**, `pytest 9.1.1`, `pytest-asyncio 1.4.0`,
 `pytest-aiohttp 1.1.1`, `pytest-mock 3.15.1`, `aiohttp 3.14.3`,
 `aiohttp-basicauth 1.2.0`, `bcrypt 4.0.1`, `passlib 1.7.4`. This is the
-reconstructed virtualenv, not the staged `testenv` image, and it is invoked as
+reconstructed virtualenv, **not** the staged `testenv` image — see
+[`../testing.md`](../testing.md) for what that difference costs. It is invoked
+as
 
 ```sh
 PYTHONPATH=/home/user/glkvm-debloat \
@@ -85,10 +88,14 @@ exist to be found, not merely the absence of a call to them. Second, everything
 below describes what admission refuses, not what a running device does — the
 device half is a foundation waiting for its placement layer.
 
-A related packaging gap: `kvmd.pluginmgr` is not listed in `setup.py`'s
-`packages` (it is one of five directories that have an `__init__.py` on disk and
-no entry there). **[verified here]** Whoever wires the placement layer has to add
-it, or the module will be present in git and absent from an install.
+A packaging gap found while writing the first version of this document has since
+been closed: `kvmd.pluginmgr` was absent from `setup.py`'s `packages`, so the
+module was present in git and would not have shipped. `setup.py:72` now lists it.
+**[verified here]** Four other directories still have an `__init__.py` on disk and
+no entry there — `kvmd.apps.kvmd.switch`, `kvmd.apps.localhid`, `kvmd.apps.media`,
+`kvmd.apps.swctl` — and the first of those is imported unconditionally at
+`kvmd/apps/kvmd/__init__.py:41`, so the same class of bug is still live
+elsewhere.
 
 ---
 
@@ -177,7 +184,8 @@ import-precedence rule last.
 
 Landed in `622c6d3` on the device half and `91b93fc` on the server half; the
 shared conformance vectors followed in `12ec53c` (`glkvm-debloat`) and `201f9f1`
-(`kazbek`).
+(`kazbek`). An independent audit pass later confirmed the rule and found no
+further importable-suffix gap in either half.
 
 The rule is two clauses, in `_check_not_importable_ahead_of_source`
 (`kvmd/pluginmgr/bundle.py`):
@@ -362,10 +370,10 @@ the suffix clause. That is the clause earning its place: without it, a
 `__pycache__` directory could still be delivered as long as nothing in it looked
 like bytecode, and the directory is the thing the interpreter consults.
 
-These were run at `622c6d3`, where the baseline is 143. At `030b52b` the
-baseline is **146**, after three shared vectors were added; the mutations were
-not re-run at the higher baseline, so treat the counts above as pinned to
-`622c6d3` and the 146 as the current suite size.
+These were run at `622c6d3`, where the baseline is 143. Re-run at `1355993`,
+where the baseline is **150**, all four still bite and the failure counts are
+unchanged: 9, 1, 4, 1. The suite grew by three shared vectors (`12ec53c`) and
+four mutation-closing tests (`252c488`) in between. **[verified here]**
 
 ### 4.6 The two halves refuse the same set
 
@@ -383,19 +391,27 @@ Three shared vectors now hold both halves to it — `unsafe-bytecode-cache`,
 `unsafe-native-extension` and `unsafe-sourceless-bytecode` in
 `contract/plugins/vectors/bundles.json`. Before those landed, the two
 implementations agreed by construction and not by contract. I ran both suites at
-the current state: Python **146 passed** at `030b52b`; Go
-`ok rttys/internal/plugins` at `8853e50`, with all three new subtests passing
+the current state: `testenv/tests/pluginmgr` is **150 passed** at `1355993`,
+and the whole Python suite is **1127 passed, 2 skipped**; Go reports
+`ok rttys/internal/plugins` at `450ca39`, with all three new subtests passing
 under `TestBundleVectors`. **[verified here]**
 
 The `contract/plugins` tree is byte-identical between the two repositories at
-these refs, and `CONTRACT-SHA256` recomputes in both to
-`d14ad81fadd7862449bf24e8fdf69c82f6f242e098162ebb9f34299faa5d5d72`.
+these refs. **[verified here]**
 
-That value moves with any change to the spec files or the vectors -- it moved
-twice on 2026-09-10 alone. Do not trust a hash quoted in prose; recompute with
-`python contract/plugins/tools/contracthash.py contract/plugins` and compare
-against `contract/plugins/CONTRACT-SHA256`, which is what the suite asserts.
-**[verified here]**
+The tree hash is deliberately not quoted here. It moves with any change to a
+spec file or a vector, and it moved three times on 2026-09-10 alone
+(`c2dc4976…` → `4888f9ea…` → `d14ad81f…`); an earlier draft of this document
+pinned a value that was stale before it was committed. Recompute instead:
+
+```sh
+python3 contract/plugins/tools/contracthash.py contract/plugins
+cat contract/plugins/CONTRACT-SHA256          # must be identical
+diff -r contract/plugins ../kazbek/contract/plugins   # must be empty
+```
+
+The first two agreeing is what `test_contract_sha256` asserts; the third is
+what nothing asserts, because neither repo can see the other.
 
 ---
 
@@ -453,7 +469,10 @@ about the closest live instance.
 
 `require_entry` asserts the declared entry is *present*. It has never asserted
 that it is *alone*, and `622c6d3` closed only the import-precedence half of
-that. The following bundles all pass `read_bundle` and `require_entry` today
+that. **This is an open design decision, not a defect awaiting a patch** — an
+audit pass confirmed the import-precedence half and left this half open
+deliberately, because the three candidate constraints below differ in what
+they forbid and the choice belongs with placement. The following bundles all pass `read_bundle` and `require_entry` today
 against a manifest declaring `plugins/ugpio/acme_relay.py`. **[verified here]**
 
 | Extra entry alongside the declared one | Result |
@@ -482,6 +501,44 @@ declared entry itself, (b) refuse any entry whose `plugins/<type>` prefix
 disagrees with the manifest's `type`, or (c) refuse any entry that would
 overwrite a file the base image already ships. This document does not pick one;
 it records that the choice is open and that placement is where it belongs.
+
+### 6.1 What pins `require_entry`
+
+`require_entry` is mutation-covered. An audit found that relaxing `==` to
+`endswith` left the whole suite green; a first test closed that and nothing
+else, because one decoy can only defeat one relation. The assertion now carries
+three decoys, the set of all three together, and the honest member so a check
+refusing everything also fails.
+
+Re-measured at `f22e718` with bytecode disabled (`python -B`,
+`PYTHONDONTWRITEBYTECODE=1`, cache cleared) against a baseline of 155:
+
+| Mutation to `require_entry` | Suite | Decoy that catches it |
+|---|---|---|
+| `f.path == entry` → `f.path.endswith(entry)` | **1 failed** | `evil/plugins/ugpio/acme_relay.py` |
+| `f.path == entry` → `f.path.startswith(entry)` | **1 failed** | `plugins/ugpio/acme_relay.pyzzz` |
+| `f.path == entry` → `entry in f.path` | **1 failed** | `xx/plugins/ugpio/acme_relay.pyzz` |
+
+An earlier draft of this document recorded `startswith` as still silent, which
+was true when it was written and was closed in `9e8f636`.
+
+**Read the bytecode warning in `docs/orchestration/WORKING-AGREEMENT.md` before
+reproducing any of this.** These exact two variants are the same length, and a
+mutation harness that restores by `cp` without clearing `__pycache__` will keep
+executing the mutation while the source reads `==`. That happened here.
+
+What `require_entry` still does NOT assert is that the declared entry is
+**alone** — see the open question at the end of §6.
+
+### 6.2 `read_placed_tree`'s symlink guard is now pinned too
+
+The same audit found that deleting `os.path.islink(full) or` from
+`read_placed_tree` left the suite green, so a symlink planted under the
+placement root after placement was followed, its target hashed, and reported as
+an ordinary regular entry. Noticing exactly that is why readback exists, so the
+guard was load-bearing and unobserved. `252c488` pins it; the mutation now
+reddens one test, and so does replacing the call with a constant `False`.
+**[verified here]**
 
 ---
 
@@ -536,11 +593,27 @@ no device.
 | A matching-header `.pyc` runs instead of its `.py` | rewrite source at identical size, restore mtime, import in a fresh interpreter |
 | Suffix coverage | `importlib.machinery` suffix lists read from the runtime |
 | Directory named `a.so` does not shadow | `find_spec` against a real directory of that name |
-| Four mutations bite | applied to a scratch copy of the tree, full `pluginmgr` suite re-run |
-| Python suite 132 → 143 → 146 | `git archive` of `622c6d3^` and `622c6d3` into scratch, plus the current tree |
+| Four mutations bite | applied to a scratch copy of the tree, full `pluginmgr` suite re-run; re-run at `1355993` with unchanged counts |
+| `require_entry` reddens under `endswith`, `startswith` and `in` | three decoys, one per relation; re-run at `f22e718` with bytecode disabled |
+| The proposed four-member vector closes all three | drafted in scratch, run against each mutation |
+| `read_placed_tree` symlink guard is pinned | mutation applied two ways, one test reddens each |
+| Python suite 132 → 143 → 146 → 150 → 155 | `git archive` of `622c6d3^` and `622c6d3` into scratch, plus the current tree |
+| Whole Python suite 1127 passed, 2 skipped | `pytest testenv/tests kvmd` at `1355993` |
 | Go half refuses the same set | `internal/plugins/bundle.go` read; `go test -count=1 ./internal/plugins/` |
-| Contract byte-identity and hash | `diff -r` between the two repos; `tools/contracthash.py` recomputed in both |
+| Contract byte-identity | `diff -r` between the two repos; `tools/contracthash.py` recomputed in both, compared against the recorded file |
 | No production caller | repo-wide grep, plus the absence of any placement or install function |
-| `kvmd.pluginmgr` missing from `setup.py` | on-disk `__init__.py` walk compared against the declared `packages` list |
+| `kvmd.pluginmgr` now in `setup.py`, four packages still missing | on-disk `__init__.py` walk compared against the declared `packages` list |
 | Load poisons readback | `readback_for` before and after importing from the placed root |
 | `chmod 0555` does not model a ro remount | **[reported]**, not reproduced here |
+
+---
+
+## 9. Where this is enforced
+
+None of the above was enforced by CI until 2026-09-10. `.github/workflows/tox.yml`
+was gated on a branch that does not exist, so the suite had never run on any push
+or pull request in the life of the fork, and `kazbek` had no test job at all. Both
+are fixed on this branch only — five of six refs in `glkvm-debloat`, `main`
+included, still carry the old filter. See [`../ci.md`](../ci.md) for what runs
+where and what remains to be propagated; the short version is that a green local
+run is currently the only enforcement these refusals have.

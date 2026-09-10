@@ -27,10 +27,11 @@ statement inherited from an older document — several of the entries here are
 corrections *to* corrections.
 
 **3. [`STATUS-BOARD.md`](STATUS-BOARD.md)** — the branch inventory, the four
-integration conflicts and how each should be resolved, the three open rows
-(the guard/branch split, the `provision` deprecation, the bench measurements
-that need hardware), and the owner decisions taken so far. This is the file to
-open when the question is "what is the state of the work".
+integration conflicts and how each was resolved, the open rows (the guard/branch
+split, the bench measurements that need hardware), the owner decisions taken so
+far, and at the end the audit round's closing state: three root causes, what
+closed, and the 56 findings capped before verification which are **not** cleared.
+This is the file to open when the question is "what is the state of the work".
 
 **4. [`FINDINGS-plugin-contract.md`](FINDINGS-plugin-contract.md)** — the six
 findings from the plugin-contract scoping pass, each with its provenance marked,
@@ -39,12 +40,19 @@ in both halves, and what was recorded as a constraint on code that does not
 exist yet. Read the status banner at the top before the body: the body is the
 original report and several items in it are superseded by the resolution.
 
-**5. [`DISPATCH.md`](DISPATCH.md)** — one self-contained brief per worker
+**5. [`CORRECTIONS-FOUND.md`](CORRECTIONS-FOUND.md)** — a documentation agent's
+correction pass over the tree, written from the code rather than from the design
+docs, with the command that measured each item. Distinct from the register above:
+the register records claims the effort itself corrected, this records claims a
+reader found wrong. Items 1–5 of it are contract edits and most have since
+landed; check against the tree before acting on any of them.
+
+**6. [`DISPATCH.md`](DISPATCH.md)** — one self-contained brief per worker
 session, as paste-in text, because the orchestrator cannot message sessions
 directly. Read the brief for the branch you are on; the common instruction at
 the top applies to everyone.
 
-**6. [`queued/`](queued/)** — patches that are prepared and deliberately not
+**7. [`queued/`](queued/)** — patches that are prepared and deliberately not
 applied, because they land on branches outside the orchestrator's push scope.
 `queued/README.md` says which patch goes onto which branch. Applying one needs
 sign-off, not just an `git am`.
@@ -58,6 +66,11 @@ The orchestration files describe the effort. The documents describing the
 - `docs/lean-plan.md` — the strip plan the worker branches execute against.
 - `docs/bench-checks.md`, `docs/bench-measurements.md` — the measurements that
   need a physical device.
+- `docs/ci.md` — what runs in CI, on which branches, and the two topology traps
+  that meant the suite had never run at all. Read it before trusting any
+  "this is covered" claim written before 2026-09-10.
+- `docs/testing.md` — the dependency set that works without the container, what
+  it costs, and why counts from it are provisional.
 - `docs/plugins/contract-overview.md` — orientation for the plugin contract that
   spans both repos.
 - `docs/plugins/admission.md` — what a plugin bundle must be before anything
