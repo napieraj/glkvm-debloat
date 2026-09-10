@@ -1,0 +1,43 @@
+From ddaea37ccc4437599cd1258154a8fc4afd2a97d7 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 10 Sep 2026 10:18:23 +0000
+Subject: [PATCH] =?UTF-8?q?docs(agents):=20rule=2012=20=E2=80=94=20a=20gua?=
+ =?UTF-8?q?rd=20and=20the=20thing=20it=20guards=20share=20a=20branch?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+New vacuity class, found while establishing what is on the firmware
+webauthn branch. Every prior instance was inside a single tree; this one
+is a property of branch topology and nothing checks it.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NqivnLpopLHdyL62k5JaJx
+---
+ AGENTS.md | 10 ++++++++++
+ 1 file changed, 10 insertions(+)
+
+diff --git a/AGENTS.md b/AGENTS.md
+index e029cac..4453fa8 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -75,6 +75,16 @@ device-trust core.
+     Written as one undifferentiated "partial", the verifiable half gets
+     re-litigated by whoever reads it next.
+ 
++12. **A guard and the thing it guards must live on the same branch.** Otherwise
++    the guard is vacuous, and vacuous in the direction that reads as a pass. On
++    the firmware side,
++    `test_attest__the_reference_credential_store_is_empty` guards
++    `configs/kvmd/webauthn.json`, which exists on only one branch — so on every
++    other branch the guard skips and certifies nothing. Every prior vacuity was
++    inside a single tree; this class is a property of the branch topology, and
++    nothing checks it. Before trusting a guard, confirm its subject is present
++    on the branch you are on.
++
+ ## Where to look
+ - `docs/ARCHITECTURE.md` — core + modules, the boundary, the connection swap.
+ - `docs/DECISIONS.md` — settled calls; read before proposing a change to one.
+-- 
+2.43.0
+

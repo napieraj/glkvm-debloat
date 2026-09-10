@@ -1,0 +1,41 @@
+From 2b0318eaecadf365b7574d8beccb5fa0b7e1a6ae Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 10 Sep 2026 10:17:58 +0000
+Subject: [PATCH] docs(agents): a guard and the thing it guards must live on
+ the same branch
+
+New vacuity class. Every prior instance -- _ROOT one level short, the
+uncovered session expiry, five tests passing against a nonexistent
+directory -- was inside a single tree. This one is a property of the
+branch topology: test_attest__the_reference_credential_store_is_empty
+guards configs/kvmd/webauthn.json, which exists only on
+claude/glkvm-webauthn, so the guard skips here and the skip reads as a
+pass. Nothing currently checks for the split.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01NqivnLpopLHdyL62k5JaJx
+---
+ AGENTS.md | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/AGENTS.md b/AGENTS.md
+index 7e9abf5..77246f4 100644
+--- a/AGENTS.md
++++ b/AGENTS.md
+@@ -55,6 +55,13 @@ surface. It does not remove binaries, services, or boot behaviour.
+ - **Restore from a snapshot, not from git.** `git checkout -- <path>` discards
+   uncommitted work, and `git checkout <sha> -- <path>` *stages* what it restores.
+   Copy the file aside before mutating it.
++- **A guard and the thing it guards must live on the same branch.** Otherwise
++  the guard is vacuous, and it is vacuous in the direction that reads as a pass.
++  `test_attest__the_reference_credential_store_is_empty` skips wherever
++  `configs/kvmd/webauthn.json` is absent, which is every branch but
++  `claude/glkvm-webauthn` — so on this branch it certifies nothing. Every other
++  vacuity found so far was inside a single tree; this class is a property of the
++  branch topology, and nothing checks it.
+ - **Claim the environment you actually ran.** `testenv/tox.ini` declares
+   `basepython = python3.12`; a bare `python3` here is 3.11. Both are staged and
+   both pass — but say which, and name the dependency set, because a missing test
+-- 
+2.43.0
+
