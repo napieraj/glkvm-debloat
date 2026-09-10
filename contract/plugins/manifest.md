@@ -195,5 +195,7 @@ bumping `v`.
 ## Canonical JSON encoding
 
 Keys sorted bytewise ascending, UTF-8, no insignificant whitespace, integers
-without exponent or fraction. `signature` and `capabilities` are omitted
-entirely when absent rather than encoded as `null`.
+without exponent or fraction. `signature` is required and always present.
+`sandbox` is the one optional key, and it is omitted entirely when absent
+rather than encoded as `null`. (This sentence named `capabilities` until v2
+renamed the field; the old name never appears in a v2 manifest.)

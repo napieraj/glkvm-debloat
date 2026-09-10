@@ -92,7 +92,7 @@ that cannot be bought back deliberately.
 "This plugin is available." Manifest only; no payload bytes.
 
 ```json
-{"manifest":{...},"v":1}
+{"manifest":{...},"v":2}
 ```
 
 `manifest` is the object defined in `manifest.md`. The device validates it
@@ -107,7 +107,7 @@ device is the only party that knows the truth about its own disk.
 ### `fetch` (0x01) — device -> server
 
 ```json
-{"sha256":"<64 lowercase hex>","v":1}
+{"sha256":"<64 lowercase hex>","v":2}
 ```
 
 Requests the bundle for a previously offered manifest, keyed by its
@@ -171,7 +171,7 @@ against `payload.sha256` before anything is unpacked.
 ### `install_result` (0x03) — device -> server
 
 ```json
-{"reason":"","sha256":"<64 hex>","state":"installed","v":1}
+{"reason":"","sha256":"<64 hex>","state":"installed","v":2}
 ```
 
 `state` is one of:
@@ -194,7 +194,7 @@ make invariant 3 untestable from the server's side.
 ### `readback` (0x04) — device -> server
 
 ```json
-{"entries":[{"path":"...","sha256":"..."}],"sha256":"<64 hex>","tree_sha256":"<64 hex>","v":1}
+{"entries":[{"path":"...","sha256":"..."}],"sha256":"<64 hex>","tree_sha256":"<64 hex>","v":2}
 ```
 
 Sent after every `installed`. Reports what is **actually on disk**, hashed by

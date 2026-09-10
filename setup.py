@@ -69,6 +69,7 @@ def main() -> None:
             "kvmd.validators",
             "kvmd.yamlconf",
             "kvmd.keyboard",
+            "kvmd.pluginmgr",
             "kvmd.plugins",
             "kvmd.plugins.auth",
             "kvmd.plugins.hid",

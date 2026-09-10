@@ -43,7 +43,7 @@ vector asserts. Both implementations use exactly these strings.
 |------|---------|
 | `bundle.malformed` | Not a readable ustar archive. |
 | `bundle.unsafe_path` | An entry path is absolute, escapes the root, or contains a backslash or non-printable-ASCII. |
-| `bundle.unsafe_entry` | An entry is not a regular file. |
+| `bundle.unsafe_entry` | An entry is not a regular file, is a directory entry, sits under a `__pycache__` segment, or carries a suffix the loader would import ahead of the declared source (`.pyc`, `.pyo`, `.pyd`, `.so`). |
 | `bundle.entry_missing` | The archive does not contain the file named by `entry`. |
 
 ## Transport
