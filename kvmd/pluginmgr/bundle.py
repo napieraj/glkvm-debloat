@@ -196,6 +196,21 @@ def readback_for(manifest_sha256: str, root: str) -> dict:
     The server derives its expectation from the bundle it still holds. The
     comparison is meaningful precisely because the two sides are computed from
     different sources.
+
+    ORDERING CONSTRAINT FOR WHOEVER WRITES PLACEMENT: compute the readback
+    BEFORE loading the plugin, never after. Importing a module writes
+    __pycache__/<name>.cpython-<ver>.pyc under the placement root, so a
+    place -> load -> readback order adds a file the server's expectation does
+    not contain and reports install.readback_mismatch on every SUCCESSFUL
+    install. Measured: readback of a freshly placed tree gave tree_sha256
+    38013ee7...; after one get_plugin_class() of a module in it, a1434df0...,
+    with the .pyc now among the entries.
+
+    Do not try to assert "nothing touched disk" by making the root read-only
+    to model the production ro remount -- as root, the import writes through a
+    0555 directory anyway, so permissions are an unfaithful double. Hash the
+    store root before and after instead; that assertion is strictly stronger
+    and needs no device.
     """
 
     return _readback_of(manifest_sha256, read_placed_tree(root))
