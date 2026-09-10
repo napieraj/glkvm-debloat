@@ -42,11 +42,11 @@ from ...errors import OperationError
 
 from ... import aiotools
 from ... import aioproc
-from ... import tools
 import asyncio
 
 from ...htserver import HttpExposed
 from ...htserver import exposed_http
+from ...htserver import get_request_auth_token
 from ...htserver import exposed_ws
 from ...htserver import make_json_response
 from ...htserver import WsSession
@@ -81,19 +81,10 @@ from .api.auth import AuthApi
 from .api.auth import check_request_auth
 
 from .api.init import InitApi
-from .api.twofa import TwoFaApi
-from .api.astrowarp import AstrowarpApi
 from .api.fingerbot import FingerbotApi
-from .api.turn import TurnApi
-from .api.repeater import RepeaterApi
-from .api.modem import ModemApi
-from .api.ap import ApApi
 from .api.wol import WolApi
-from .api.tailscale import TailscaleApi
-from .api.netbird import NetbirdApi
-from .api.cloudflare import CloudflareApi
-from .api.zerotier import ZerotierApi
 from .api.system import SystemApi
+from .api.edid import EdidApi
 from .api.info import InfoApi
 from .api.log import LogApi
 from .api.ugpio import UserGpioApi
@@ -106,7 +97,6 @@ from .api.streamer import StreamerApi
 from .api.switch import SwitchApi
 from .api.export import ExportApi
 from .api.redfish import RedfishApi
-from .api.custom_screen import CustomScreenApi
 from .api.recorder import RecorderApi
 from .api.serial import SerialApi
 
@@ -170,10 +160,6 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
     __EV_SWITCH_STATE = "switch"
     __EV_RNDIS_STATE = "rndis"
     __EV_FINGERBOT_STATE = "fingerbot"
-    __EV_REPEATER_STATE = "repeater"
-    __EV_MODEMO_STATE = "modem"
-    __EV_AP_STATE = "ap"
-    __EV_TURN_STATE = "turn"
     __EV_RECORDER_STATE = "recorder"
     __EV_SERIAL_STATE = "serial"
 
@@ -212,35 +198,15 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
         self.__switch = switch
         self.__fingerbot_api = FingerbotApi()
         self.__serial_api = SerialApi()
-        self.__turn_api = TurnApi()
-        self.__repeater_api = RepeaterApi()
-        self.__modem_api = ModemApi()
-        self.__ap_api = ApApi()
-        self.__custom_screen_api = CustomScreenApi()
         self.__recorder_api = RecorderApi(streamer, msd)
         self.__hid_api = HidApi(hid, keymap_path)  # Ugly hack to get keymaps state
         self.__apis: list[object] = [
             self,
             AuthApi(auth_manager),
             InitApi(init_manager),
-            TwoFaApi(),
-            AstrowarpApi(),
             self.__fingerbot_api,
             WolApi(),
-            self.__repeater_api,
-            self.__modem_api,
-            self.__ap_api,
-            self.__custom_screen_api,
-            TailscaleApi(),
-            NetbirdApi(),
-            CloudflareApi(),
-            ZerotierApi(),
-            self.__turn_api,
-            SystemApi(
-                get_wss_callback=self._get_wss,
-                close_ws_callback=self._close_ws_by_session,
-                logout_callback=auth_manager.logout,
-            ),
+            SystemApi(),
             InfoApi(info_manager),
             LogApi(log_reader),
             UserGpioApi(user_gpio),
@@ -249,6 +215,7 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
             MsdApi(msd),
             RndisApi(),
             UpgradeApi(),
+            EdidApi(),
             StreamerApi(streamer, ocr),
             self.__recorder_api,
             # SwitchApi(switch),
@@ -270,10 +237,6 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
             # _Subsystem.make(switch,       "Switch",       self.__EV_SWITCH_STATE),
             _Subsystem.make(rndis,        "RNDIS",        self.__EV_RNDIS_STATE),
             _Subsystem.make(self.__fingerbot_api, "Fingerbot", self.__EV_FINGERBOT_STATE),
-            _Subsystem.make(self.__repeater_api, "Repeater", self.__EV_REPEATER_STATE),
-            _Subsystem.make(self.__modem_api, "Modem", self.__EV_MODEMO_STATE),
-            _Subsystem.make(self.__ap_api, "Ap", self.__EV_AP_STATE),
-            _Subsystem.make(self.__turn_api, "turn", self.__EV_TURN_STATE),
             _Subsystem.make(self.__recorder_api, "Recorder", self.__EV_RECORDER_STATE),
             _Subsystem.make(self.__serial_api, "Serial", self.__EV_SERIAL_STATE),
         ]
@@ -552,10 +515,9 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
         user_agent = req.headers.get("User-Agent", "unknown")
         # 在连接建立时就解析 user_agent，保存 device_type 和 browser
         device_type, browser = parse_user_agent(user_agent)
-        # 提取 auth_token 以便后续断开连接时可以删除
-        auth_token = req.query.get("auth_token") or \
-                     req.headers.get("Token") or \
-                     req.cookies.get("auth_token", "")
+        # 会话 token 来自刚刚通过鉴权的那次请求(htserver 已暂存),
+        # 不再从 URL 查询串里读取,见 docs/audit.md (R5.9)。
+        auth_token = get_request_auth_token(req)
         async with self._ws_session(req, stream=stream, client_ip=client_ip, user_agent=user_agent, device_type=device_type, browser=browser, auth_token=auth_token) as ws:
             (major, minor) = __version__.split(".")
             await ws.send_event("loop", {
@@ -590,19 +552,11 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
 
     @exposed_ws("ping")
     async def __ws_ping_handler(self, ws: WsSession, _: dict) -> None:
-        self.__refresh_token_from_ws(ws)
         await ws.send_event("pong", {})
 
     @exposed_ws(0)
     async def __ws_bin_ping_handler(self, ws: WsSession, _: bytes) -> None:
-        self.__refresh_token_from_ws(ws)
         await ws.send_bin(255, b"")  # Ping-pong
-
-    def __refresh_token_from_ws(self, ws: WsSession) -> None:
-        """Refresh token expiry from WebSocket session (sliding expiration)"""
-        auth_token = ws.kwargs.get("auth_token", "")
-        if auth_token and self.__auth_manager.is_auth_enabled():
-            self.__auth_manager.refresh_token_expiry(auth_token)
 
     # ===== SYSTEM STUFF
 
@@ -653,20 +607,19 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
                     logger.exception("Cleanup error on %s", sub.name)
         logger.info("On-Cleanup complete")
 
-    async def _on_ws_opened(self, _: WsSession) -> None:
+    async def _on_ws_opened(self, ws: WsSession) -> None:
+        # 会话在 WS 打开期间不过期，关闭时按原始 expire 重新计时
+        self.__auth_manager.start_ws_session(ws.kwargs.get("auth_token", ""))
         # 清理所有键盘按键状态，确保新连接时按键都是抬起状态
         self.__hid.clear_events()
         self.__streamer_notifier.notify()
-        # 异步发送 SIGUSR1 信号给 gl_kvm_gui 进程
-        aiotools.create_short_task(tools.run_command("killall", "-SIGUSR1", "gl_kvm_gui", timeout=5))
 
-    async def _on_ws_closed(self, _: WsSession) -> None:
+    async def _on_ws_closed(self, ws: WsSession) -> None:
+        self.__auth_manager.stop_ws_session(ws.kwargs.get("auth_token", ""))
         # 这里清理会受到rtty不会正确释放tcp连接的影响,导致会隔好几秒才进行收尾
         # 所以我们在open的时候清理一遍
         self.__hid.clear_events()
         self.__streamer_notifier.notify()
-        # 异步发送 SIGUSR1 信号给 gl_kvm_gui 进程
-        aiotools.create_short_task(tools.run_command("killall", "-SIGUSR1", "gl_kvm_gui", timeout=5))
 
     def __has_stream_clients(self) -> bool:
         return bool(sum(map(

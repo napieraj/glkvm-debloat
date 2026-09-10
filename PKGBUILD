@@ -53,8 +53,6 @@ depends=(
 	python-aiofiles
 	python-async-lru
 	python-passlib
-	python-pyotp
-	python-qrcode
 	python-periphery
 	python-pyserial
 	python-pyserial-asyncio

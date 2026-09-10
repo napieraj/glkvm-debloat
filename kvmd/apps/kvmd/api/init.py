@@ -33,10 +33,8 @@ from ....htserver import make_json_response
 from ....htserver import make_json_exception
 from ....htserver import set_request_auth_info
 
-from ....validators import ValidatorError
 from ....validators.auth import valid_user
 from ....validators.auth import valid_passwd
-from ....validators.auth import valid_new_passwd
 from ....validators.auth import valid_auth_token
 
 from ..init import InitManager
@@ -58,21 +56,6 @@ class InitApi:
         self.__init_manager = init_manager
 
     # =====
-
-    @exposed_http("GET", "/init/init", auth_required=False)
-    async def __init_handler(self, req: Request) -> Response:
-        if self.__init_manager.is_inited():
-            return make_json_exception(ForbiddenError("Already initialized"), 403)
-
-        unsafe_password = req.query.get("password", "")
-        # 初始化密码需满足强密码规则:长度 10~63,且大写字母/小写字母/数字/特殊字符
-        # 四类中至少包含两类。不符合规则时返回 400 并带明确原因。
-        try:
-            safe_password = valid_new_passwd(unsafe_password)
-        except ValidatorError:
-            return make_json_exception(BadRequestError(_WEAK_PASSWORD_MSG), 400)
-        self.__init_manager.init(safe_password)
-        return make_json_response()
 
     @exposed_http("GET", "/init/is_inited", auth_required=False)
     async def __is_inited_handler(self, req: Request) -> Response:

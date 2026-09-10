@@ -22,6 +22,7 @@
 
 import os
 import contextlib
+import socket
 
 from typing import AsyncGenerator
 
@@ -33,15 +34,17 @@ from kvmd.yamlconf import make_config
 
 from kvmd.apps.kvmd.auth import AuthManager
 
+from kvmd.crypto import KvmdHtpasswdFile
+
 from kvmd.plugins.auth import get_auth_service_class
 
 from kvmd.htserver import HttpExposed
 
 
 # =====
-_E_AUTH = HttpExposed("GET", "/foo_auth", True, (lambda: None))
-_E_UNAUTH = HttpExposed("GET", "/bar_unauth", True, (lambda: None))
-_E_FREE = HttpExposed("GET", "/baz_free", False, (lambda: None))
+_E_AUTH = HttpExposed("GET", "/foo_auth", True, True, (), (lambda: None))
+_E_UNAUTH = HttpExposed("GET", "/bar_unauth", True, True, (), (lambda: None))
+_E_FREE = HttpExposed("GET", "/baz_free", False, True, (), (lambda: None))
 
 
 def _make_service_kwargs(path: str) -> dict:
@@ -56,20 +59,25 @@ async def _get_configured_manager(
     internal_path: str,
     external_path: str="",
     force_internal_users: (list[str] | None)=None,
+    expire: int=0,
+    extend: bool=False,
 ) -> AsyncGenerator[AuthManager, None]:
 
     manager = AuthManager(
         enabled=True,
+        expire=expire,
+        extend=extend,
+        usc_users=[],
+        usc_groups=[],
         unauth_paths=unauth_paths,
 
-        internal_type="htpasswd",
-        internal_kwargs=_make_service_kwargs(internal_path),
-        force_internal_users=(force_internal_users or []),
+        int_type="htpasswd",
+        int_kwargs=_make_service_kwargs(internal_path),
+        force_int_users=(force_internal_users or []),
 
-        external_type=("htpasswd" if external_path else ""),
-        external_kwargs=(_make_service_kwargs(external_path) if external_path else {}),
+        ext_type=("htpasswd" if external_path else ""),
+        ext_kwargs=(_make_service_kwargs(external_path) if external_path else {}),
 
-        totp_secret_path="",
     )
 
     try:
@@ -96,15 +104,15 @@ async def test_ok__internal(tmpdir) -> None:  # type: ignore
         assert manager.check("xxx") is None
         manager.logout("xxx")
 
-        assert (await manager.login("user", "foo")) is None
-        assert (await manager.login("admin", "foo")) is None
-        assert (await manager.login("user", "pass")) is None
+        assert (await manager.login("user", "foo", 0))[0] is None
+        assert (await manager.login("admin", "foo", 0))[0] is None
+        assert (await manager.login("user", "pass", 0))[0] is None
 
-        token1 = await manager.login("admin", "pass")
+        (token1, _) = await manager.login("admin", "pass", 0)
         assert isinstance(token1, str)
         assert len(token1) == 64
 
-        token2 = await manager.login("admin", "pass")
+        (token2, _) = await manager.login("admin", "pass", 0)
         assert isinstance(token2, str)
         assert len(token2) == 64
         assert token1 != token2
@@ -113,13 +121,17 @@ async def test_ok__internal(tmpdir) -> None:  # type: ignore
         assert manager.check(token2) == "admin"
         assert manager.check("foobar") is None
 
+        # The fork's logout() closes only the session it is given. Upstream
+        # closed every session belonging to that user, and the loop that did
+        # so survives commented out at auth.py:337-341. token2 therefore stays
+        # valid here; this assertion records the fork's behaviour, not a wish.
         manager.logout(token1)
 
         assert manager.check(token1) is None
-        assert manager.check(token2) is None
+        assert manager.check(token2) == "admin"
         assert manager.check("foobar") is None
 
-        token3 = await manager.login("admin", "pass")
+        (token3, _) = await manager.login("admin", "pass", 0)
         assert isinstance(token3, str)
         assert len(token3) == 64
         assert token1 != token3
@@ -147,17 +159,17 @@ async def test_ok__external(tmpdir) -> None:  # type: ignore
         assert manager.is_auth_required(_E_UNAUTH)
         assert not manager.is_auth_required(_E_FREE)
 
-        assert (await manager.login("local", "foobar")) is None
-        assert (await manager.login("admin", "pass2")) is None
+        assert (await manager.login("local", "foobar", 0))[0] is None
+        assert (await manager.login("admin", "pass2", 0))[0] is None
 
-        token = await manager.login("admin", "pass1")
+        (token, _) = await manager.login("admin", "pass1", 0)
         assert token is not None
 
         assert manager.check(token) == "admin"
         manager.logout(token)
         assert manager.check(token) is None
 
-        token = await manager.login("user", "foobar")
+        (token, _) = await manager.login("user", "foobar", 0)
         assert token is not None
 
         assert manager.check(token) == "user"
@@ -191,16 +203,19 @@ async def test_ok__disabled() -> None:
     try:
         manager = AuthManager(
             enabled=False,
+            expire=0,
+            extend=False,
+            usc_users=[],
+            usc_groups=[],
             unauth_paths=[],
 
-            internal_type="foobar",
-            internal_kwargs={},
-            force_internal_users=[],
+            int_type="foobar",
+            int_kwargs={},
+            force_int_users=[],
 
-            external_type="",
-            external_kwargs={},
+            ext_type="",
+            ext_kwargs={},
 
-            totp_secret_path="",
         )
 
         assert not manager.is_auth_enabled()
@@ -212,7 +227,7 @@ async def test_ok__disabled() -> None:
             await manager.authorize("admin", "admin")
 
         with pytest.raises(AssertionError):
-            await manager.login("admin", "admin")
+            await manager.login("admin", "admin", 0)
 
         with pytest.raises(AssertionError):
             manager.logout("xxx")
@@ -221,3 +236,135 @@ async def test_ok__disabled() -> None:
             manager.check("xxx")
     finally:
         await manager.cleanup()
+
+
+# =====
+# The 2FA removal was an ATOMICITY TRAP and these pin both halves of it.
+#
+# The login page used to concatenate a six-character code onto the password
+# (web/share/js/login/main.js) and authorize() sliced the last six characters
+# back off whenever /etc/kvmd/user/totp.secret was non-empty. Removing one side
+# without the other does not crash: it silently eats or appends six characters
+# of every real password. A silent corruption, so it needs an assertion rather
+# than a smoke test.
+@pytest.mark.asyncio
+async def test_ok__password_is_not_truncated(tmpdir) -> None:  # type: ignore
+    path = os.path.abspath(str(tmpdir.join("htpasswd")))
+
+    # The last six characters are load-bearing: "123456" is exactly what the
+    # old TOTP slice would have removed.
+    passwd = "correcthorse123456"
+
+    htpasswd = KvmdHtpasswdFile(path, new=True)
+    htpasswd.set_password("admin", passwd)
+    htpasswd.save()
+
+    async with _get_configured_manager([], path) as manager:
+        # The whole password authenticates ...
+        (token, _) = await manager.login("admin", passwd, 0)
+        assert isinstance(token, str)
+
+        # ... and the sliced form does not, which is what fails if the server
+        # side of the 2FA removal is ever reintroduced on its own.
+        assert (await manager.login("admin", passwd[:-6], 0))[0] is None
+
+
+def test_fail__totp_secret_path_is_no_longer_accepted() -> None:
+    # Pins the removal so it cannot quietly come back with the web half absent.
+    with pytest.raises(TypeError):
+        AuthManager(  # type: ignore[call-arg]
+            enabled=False,
+            expire=0,
+            extend=False,
+            usc_users=[],
+            usc_groups=[],
+            unauth_paths=[],
+            int_type="foobar",
+            int_kwargs={},
+            force_int_users=[],
+            ext_type="",
+            ext_kwargs={},
+            totp_secret_path="",
+        )
+
+
+# =====
+# The WS-session lifecycle, ported from upstream in place of the fork's
+# refresh_token_expiry. While a WebSocket is open the session does not expire
+# (expire_ts == 0); when the last one closes it is re-armed from the ORIGINAL
+# requested expire, which is what _Session.expire_req exists to remember.
+def _expire_ts(manager: AuthManager, token: str) -> int:
+    return manager._AuthManager__sessions[token].expire_ts  # pylint: disable=protected-access
+
+
+@pytest.mark.asyncio
+async def test_ok__ws_session_extends_while_open(tmpdir) -> None:  # type: ignore
+    path = os.path.abspath(str(tmpdir.join("htpasswd")))
+    htpasswd = KvmdHtpasswdFile(path, new=True)
+    htpasswd.set_password("admin", "password")
+    htpasswd.save()
+
+    async with _get_configured_manager([], path, expire=600, extend=True) as manager:
+        (token, _) = await manager.login("admin", "password", 0)
+        assert isinstance(token, str)
+        assert _expire_ts(manager, token) > 0        # finite to begin with
+
+        manager.start_ws_session(token)
+        assert _expire_ts(manager, token) == 0       # infinite while open
+        assert manager.check(token) == "admin"
+
+        manager.stop_ws_session(token)
+        assert _expire_ts(manager, token) > 0        # re-armed from expire_req
+        assert manager.check(token) == "admin"
+
+
+@pytest.mark.asyncio
+async def test_ok__ws_session_counts_nested_sockets(tmpdir) -> None:  # type: ignore
+    path = os.path.abspath(str(tmpdir.join("htpasswd")))
+    htpasswd = KvmdHtpasswdFile(path, new=True)
+    htpasswd.set_password("admin", "password")
+    htpasswd.save()
+
+    async with _get_configured_manager([], path, expire=600, extend=True) as manager:
+        (token, _) = await manager.login("admin", "password", 0)
+        assert isinstance(token, str)
+
+        manager.start_ws_session(token)
+        manager.start_ws_session(token)
+        assert _expire_ts(manager, token) == 0
+
+        manager.stop_ws_session(token)
+        assert _expire_ts(manager, token) == 0       # one socket still open
+        manager.stop_ws_session(token)
+        assert _expire_ts(manager, token) > 0        # last one closed
+
+
+@pytest.mark.asyncio
+async def test_ok__ws_session_is_a_noop_without_extend(tmpdir) -> None:  # type: ignore
+    path = os.path.abspath(str(tmpdir.join("htpasswd")))
+    htpasswd = KvmdHtpasswdFile(path, new=True)
+    htpasswd.set_password("admin", "password")
+    htpasswd.save()
+
+    async with _get_configured_manager([], path, expire=600, extend=False) as manager:
+        (token, _) = await manager.login("admin", "password", 0)
+        assert isinstance(token, str)
+        before = _expire_ts(manager, token)
+
+        manager.start_ws_session(token)
+        assert _expire_ts(manager, token) == before
+        manager.stop_ws_session(token)
+        assert _expire_ts(manager, token) == before
+
+
+@pytest.mark.asyncio
+async def test_ok__sysprep_reaches_the_auth_services(tmpdir) -> None:  # type: ignore
+    path = os.path.abspath(str(tmpdir.join("htpasswd")))
+    htpasswd = KvmdHtpasswdFile(path, new=True)
+    htpasswd.set_password("admin", "password")
+    htpasswd.save()
+
+    # sysprep() is picked up by _Subsystem.make via getattr, so the daemon calls
+    # it on startup; the base hook is a no-op and must not raise.
+    async with _get_configured_manager([], path) as manager:
+        await manager.sysprep()

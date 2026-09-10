@@ -51,8 +51,7 @@ button#login-button {
 }
 
 input[type="text"]#user-input,
-input[type="password"]#passwd-input,
-input[type="text"]#code-input {
+input[type="password"]#passwd-input {
 	text-align: center;
 	border: thin;
 }

@@ -13,7 +13,7 @@ DEFAULT_CONFIG_PATH = "/etc/kvmd/user/boot.yaml"
 
 
 def get_nested_value(data: dict, path: str, default: Any = None) -> Any:
-    """获取嵌套字典中的值，path 使用 '/' 分隔，如 'kvmd/auth/two_step_login/enabled'"""
+    """获取嵌套字典中的值，path 使用 '/' 分隔，如 'kvmd/auth/internal/file'"""
     keys = path.split("/")
     current = data
     for key in keys:

@@ -276,7 +276,7 @@ class Device:
     # ------------------------------------------------------------------
     # 生命周期（保持与 Device 兼容）
     # ------------------------------------------------------------------
-    def __enter__(self) -> "SysfsDevice":
+    def __enter__(self) -> "Device":
         return self
 
     def __exit__(self, exc_type, exc, tb) -> None:

@@ -25,7 +25,7 @@ import copy
 import yaml
 import json
 import re
-from typing import Dict, Any, Optional, Callable, List, Set
+from typing import Dict, Any, Optional, List, Set
 import asyncio
 from datetime import datetime
 from .... import aiotools, usb
@@ -62,16 +62,8 @@ logger = get_logger()
 model_name = get_model_name()
 
 class SystemApi:
-    def __init__(
-        self,
-        get_wss_callback: Optional[Callable[[], List]] = None,
-        close_ws_callback: Optional[Callable] = None,
-        logout_callback: Optional[Callable[[str], None]] = None,
-    ) -> None:
+    def __init__(self) -> None:
         self._logger = logger
-        self._get_wss = get_wss_callback
-        self._close_ws = close_ws_callback
-        self._logout = logout_callback
         self._config_path = "/etc/kvmd/user/boot.yaml"
         self._privacy_path = "/etc/kvmd/user/privacy"
         self._user_config_path = "/etc/kvmd/user/config.json"
@@ -160,61 +152,6 @@ class SystemApi:
 
         return "unknown"
 
-    @exposed_http("GET", "/system/clients", allowed_exe_paths=["/usr/sbin/gl_kvm_gui"])
-    async def get_clients_handler(self, request: Request) -> Response:
-        """获取当前连接的客户端数量"""
-        try:
-            if self._get_wss is None:
-                return make_json_response({
-                    "success": False,
-                    "error": "WebSocket session callback not configured"
-                }, status=500)
-            
-            wss = self._get_wss()
-            clients = []
-            unique_ips = set()
-            streaming_count = 0
-            
-            for ws in wss:
-                # 跳过服务类连接（如 gl-pion 经 /hid/ws 中继的 HID 通道），
-                # 它们不是真实终端用户，不应计入客户端列表与统计。
-                if ws.kwargs.get("device_type") == "service":
-                    continue
-                # 从会话 kwargs 中获取客户端 IP（在 WebSocket 连接时保存）
-                remote = ws.kwargs.get("client_ip", "unknown")
-                # 获取客户端浏览器信息
-                user_agent = ws.kwargs.get("user_agent", "unknown")
-                
-                is_streaming = ws.kwargs.get("stream", False)
-                if is_streaming:
-                    streaming_count += 1
-
-                # 直接从 kwargs 中获取连接建立时已解析好的信息
-                device_type = ws.kwargs.get("device_type", "Unknown")
-                browser = ws.kwargs.get("browser", "Unknown")
-
-                unique_ips.add(remote)
-                clients.append({
-                    "remote": remote,
-                    "user_agent": user_agent,
-                    "device_type": device_type,
-                    "browser": browser,
-                    "is_streaming": is_streaming,
-                    "id": id(ws)
-                })
-            
-            return make_json_response({
-                "success": True,
-                "total_connections": len(clients),
-                "unique_ips": len(unique_ips),
-                "streaming_count": streaming_count,
-                "clients": clients
-            })
-            
-        except Exception as e:
-            self._logger.error(f"Error getting clients info: {e}")
-            return make_json_exception(BadRequestError(f"Error getting clients info: {str(e)}"), 502)
-
     @exposed_http("GET", "/system/capability")
     async def get_capability_handler(self, request: Request) -> Response:
         """获取系统硬件能力信息"""
@@ -239,109 +176,6 @@ class SystemApi:
         except Exception as e:
             self._logger.error(f"Error getting capabilities: {e}")
             return make_json_exception(BadRequestError(f"Error getting capabilities: {str(e)}"), 502)
-
-    @exposed_http("DELETE", "/system/clients/{client_id}", allowed_exe_paths=["/usr/sbin/gl_kvm_gui"])
-    async def delete_client_handler(self, request: Request) -> Response:
-        """断开指定的 WebSocket 连接并删除对应的 token (RESTful: DELETE /system/clients/{id})"""
-        try:
-            if self._get_wss is None or self._close_ws is None:
-                return make_json_response({
-                    "success": False,
-                    "error": "WebSocket session callback not configured"
-                }, status=500)
-            
-            # 从 URL 路径中获取 client_id
-            client_id_str = request.match_info.get("client_id", "")
-            if not client_id_str:
-                return make_json_response({
-                    "success": False,
-                    "error": "Missing client_id parameter"
-                }, status=400)
-            
-            try:
-                client_id = int(client_id_str)
-            except ValueError:
-                return make_json_response({
-                    "success": False,
-                    "error": "Invalid client_id format, must be an integer"
-                }, status=400)
-            
-            # 遍历找到对应的 session
-            wss = self._get_wss()
-            target_ws = None
-            for ws in wss:
-                if id(ws) == client_id:
-                    target_ws = ws
-                    break
-            
-            if target_ws is None:
-                return make_json_response({
-                    "success": False,
-                    "error": f"Client with id {client_id} not found"
-                }, status=404)
-            
-            # 获取 auth_token，反查所有使用同一 token 的 session
-            auth_token = target_ws.kwargs.get("auth_token", "")
-            wss_to_close = []
-            if auth_token:
-                for ws in wss:
-                    if ws.kwargs.get("auth_token", "") == auth_token:
-                        wss_to_close.append(ws)
-            if not wss_to_close:
-                wss_to_close = [target_ws]
-
-            # 登出 token（只删一次）
-            if auth_token and self._logout:
-                try:
-                    self._logout(auth_token)
-                    self._logger.info(f"Logged out token for client {client_id}")
-                except Exception as e:
-                    self._logger.warning(f"Failed to logout token for client {client_id}: {e}")
-
-            # 通知并关闭所有使用该 token 的 session
-            disconnected_ids = []
-            for ws in wss_to_close:
-                try:
-                    await ws.send_event("kickout", {
-                        "reason": "deleted_by_admin",
-                    })
-                except Exception:
-                    pass
-                try:
-                    disconnected_ids.append(id(ws))
-                    await self._close_ws(ws)
-                    self._logger.info(f"Disconnected client {id(ws)}")
-                except Exception as e:
-                    self._logger.warning(f"Failed to close client {id(ws)}: {e}")
-
-            # 重启相关进程
-            restart_scripts = [
-                "killall janus",
-                "/etc/init.d/S99gl-pion restart",
-                "/etc/init.d/S80ttyd restart",
-            ]
-            for script in restart_scripts:
-                try:
-                    returncode, _, stderr_text = await run_shell(script, timeout=30)
-                    if returncode == 0:
-                        self._logger.info(f"Successfully executed: {script}")
-                    else:
-                        self._logger.warning(f"Script {script} returned non-zero: {stderr_text}")
-                except asyncio.TimeoutError:
-                    self._logger.warning(f"Script {script} timed out")
-                except Exception as e:
-                    self._logger.warning(f"Failed to execute {script}: {e}")
-
-            return make_json_response({
-                "success": True,
-                "disconnected_ids": disconnected_ids,
-                "disconnected_count": len(disconnected_ids),
-                "token_deleted": bool(auth_token and self._logout)
-            })
-            
-        except Exception as e:
-            self._logger.error(f"Error disconnecting client: {e}")
-            return make_json_exception(BadRequestError(f"Error disconnecting client: {str(e)}"), 502)
 
     async def _get_ethernet_service_id(self) -> Optional[str]:
         """获取 eth0 对应的以太网服务ID"""
@@ -821,11 +655,6 @@ class SystemApi:
             self._logger.error(f"Error getting system parameters: {e}")
             return make_json_exception(BadRequestError("Error getting system parameters"), 502)
 
-    @exposed_http("GET", "/system/gui_get_param", allowed_exe_paths=["/usr/sbin/gl_kvm_gui"])
-    async def gui_get_param_handler(self, request: Request) -> Response:
-        """GUI 获取系统参数处理器"""
-        return await self.get_param_handler(request)
-
     @exposed_http("POST", "/system/set_param")
     async def set_param_handler(self, request: Request) -> Response:
         """设置系统参数处理器"""
@@ -948,11 +777,6 @@ class SystemApi:
         except Exception as e:
             self._logger.error(f"Error setting system parameters: {e}")
             return make_json_exception(BadRequestError(), 502)
-
-    @exposed_http("POST", "/system/gui_set_param", allowed_exe_paths=["/usr/sbin/gl_kvm_gui"])
-    async def gui_set_param_handler(self, request: Request) -> Response:
-        """GUI 设置系统参数处理器"""
-        return await self.set_param_handler(request)
 
     # ===== OTG Function Toggle (link/unlink via kvmd-otgconf)
 
@@ -1647,59 +1471,6 @@ class SystemApi:
         pattern = r'^[a-zA-Z0-9]([a-zA-Z0-9-]*[a-zA-Z0-9])?$'
 
         return bool(re.match(pattern, hostname))
-
-    @exposed_http("GET", "/system/ssh_key")
-    async def get_ssh_key_handler(self, request: Request) -> Response:
-        """获取SSH公钥"""
-        try:
-            ssh_key_path = "/root/.ssh/authorized_keys"
-
-            if os.path.exists(ssh_key_path):
-                with open(ssh_key_path, "r") as f:
-                    ssh_key = f.read()
-            else:
-                ssh_key = ""
-
-            return make_json_response({
-                "success": True,
-                "ssh_key": ssh_key
-            })
-
-        except Exception as e:
-            self._logger.error(f"Error getting SSH key: {e}")
-            return make_json_exception(BadRequestError(f"Error getting SSH key: {str(e)}"), 502)
-
-    @exposed_http("POST", "/system/ssh_key")
-    async def set_ssh_key_handler(self, request: Request) -> Response:
-        """设置SSH公钥"""
-        try:
-            # 从请求体读取SSH公钥
-            ssh_key = await request.text()
-
-            # 创建.ssh目录（如果不存在）
-            ssh_dir = "/root/.ssh"
-            os.makedirs(ssh_dir, mode=0o700, exist_ok=True)
-
-            # 写入authorized_keys文件
-            ssh_key_path = os.path.join(ssh_dir, "authorized_keys")
-            with open(ssh_key_path, "w") as f:
-                f.write(ssh_key)
-
-            # 设置正确的权限
-            os.chmod(ssh_key_path, 0o600)
-
-            # 同步到磁盘
-            await run_shell("sync")
-
-            self._logger.info(f"Successfully updated SSH key at {ssh_key_path}")
-
-            return make_json_response({
-                "success": True
-            })
-
-        except Exception as e:
-            self._logger.error(f"Error setting SSH key: {e}")
-            return make_json_exception(BadRequestError(f"Error setting SSH key: {str(e)}"), 502)
 
     async def _restart_nginx(self) -> None:
         """重启 Nginx 服务"""

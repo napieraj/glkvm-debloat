@@ -67,15 +67,3 @@ def valid_expire(arg: Any) -> int:
 
 def valid_auth_token(arg: Any) -> str:
     return check_re_match(arg, "auth token", r"^[0-9a-f]{64}$", hide=True)
-
-
-def valid_rate_limit_max_attempts(arg: Any) -> int:
-    return int(valid_number(arg, min=1, max=100, name="rate limit max attempts"))
-
-
-def valid_rate_limit_time_window(arg: Any) -> int:
-    return int(valid_number(arg, min=60, max=3600, name="rate limit time window"))
-
-
-def valid_rate_limit_lockout_duration(arg: Any) -> int:
-    return int(valid_number(arg, min=60, max=3600, name="rate limit lockout duration"))

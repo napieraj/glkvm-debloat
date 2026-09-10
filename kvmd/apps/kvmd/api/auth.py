@@ -37,11 +37,11 @@ from ....htserver import exposed_http
 from ....htserver import make_json_response
 from ....htserver import set_request_auth_info
 from ....htserver import get_request_unix_credentials
+from ....htserver import is_request_secure
 from ....htserver import get_request_exe_path
 
 from ....logging import get_logger
 
-from ..auth import RateLimitError
 
 from ....validators.auth import valid_user
 from ....validators.auth import valid_passwd
@@ -50,11 +50,63 @@ from ....validators.auth import valid_auth_token
 
 from ..auth import AuthManager
 
-from .config_utils import set_yaml_value as _set_yaml_value
 
 
 # =====
 _COOKIE_AUTH_TOKEN = "auth_token"
+
+
+def _is_trusted_peer(req: Request) -> bool:
+    """本次连接的对端是否可信到可以相信它设置的代理头。
+
+    Trusted means the immediate peer is local: a Unix socket connection, which
+    is how nginx reaches kvmd (kvmd/server declares only a `unix` listener,
+    apps/__init__.py), or a loopback TCP address. Anything else is a remote
+    client talking to us directly, and its headers are its own claims.
+    """
+    if get_request_unix_credentials(req) is not None:
+        # SO_PEERCRED succeeded, so this is a Unix socket peer.
+        return True
+    peer_ip = _get_peer_ip(req)
+    if not peer_ip:
+        return False
+    try:
+        return ipaddress.ip_address(peer_ip).is_loopback
+    except ValueError:
+        return False
+
+
+def _get_peer_ip(req: Request) -> str:
+    """对端 socket 的地址；Unix socket 连接没有地址,返回空串。"""
+    if req.transport is None:
+        return ""
+    peername = req.transport.get_extra_info("peername")
+    if isinstance(peername, tuple) and len(peername) >= 1:
+        return str(peername[0])
+    return ""
+
+
+def get_client_ip(req: Request) -> str:
+    """Identify the client for the local-network gate.
+
+    Takes the REQUEST, not a headers dict, so that identifying a caller by its
+    own headers is not expressible at the call site. X-Real-IP and
+    X-Forwarded-For are honoured only when the immediate peer is trusted; from
+    an untrusted peer they are ignored entirely in favour of the transport
+    address, because a header a remote client controls is that client naming
+    itself. See docs/audit.md on the header-derived-identity finding.
+    """
+    if _is_trusted_peer(req):
+        real_ip = req.headers.get("X-Real-IP", "").strip()
+        if real_ip:
+            return real_ip
+        forwarded_for = req.headers.get("X-Forwarded-For", "")
+        if forwarded_for:
+            # X-Forwarded-For can carry a chain; the client is the first entry.
+            first = forwarded_for.split(",")[0].strip()
+            if first:
+                return first
+    return (_get_peer_ip(req) or "unknown")
 
 
 def _is_local_network(ip_str: str) -> bool:
@@ -84,7 +136,7 @@ async def _check_token(auth_manager: AuthManager, _: HttpExposed, req: Request) 
     if token:
         user = auth_manager.check(valid_auth_token(token))
         if user:
-            set_request_auth_info(req, f"{user} (token)")
+            set_request_auth_info(req, f"{user} (token)", token)
             return True
         set_request_auth_info(req, "- (token)")
         raise ForbiddenError()
@@ -112,21 +164,9 @@ async def _check_header_token(auth_manager: AuthManager, _: HttpExposed, req: Re
     if token:
         user = auth_manager.check(valid_auth_token(token))
         if user:
-            set_request_auth_info(req, f"{user} (header-token)")
+            set_request_auth_info(req, f"{user} (header-token)", token)
             return True
         set_request_auth_info(req, "- (header-token)")
-        raise ForbiddenError()
-    return False
-
-
-async def _check_query_token(auth_manager: AuthManager, _: HttpExposed, req: Request) -> bool:
-    token = req.query.get("auth_token", "")
-    if token:
-        user = auth_manager.check(valid_auth_token(token))
-        if user:
-            set_request_auth_info(req, f"{user} (query-token)")
-            return True
-        set_request_auth_info(req, "- (query-token)")
         raise ForbiddenError()
     return False
 
@@ -148,6 +188,20 @@ async def _check_exe_path(auth_manager: AuthManager, exposed: HttpExposed, req: 
     当接口设置了 allowed_exe_paths 时，具有排他性：
     只有白名单内的进程（必须通过 Unix Socket 连接）才能访问，
     其他任何方式（包括 HTTP）均被拒绝。
+
+    DO NOT REMOVE AS DEAD CODE. The kvmd-lean strip (docs/lean-plan.md steps 3,
+    5 and 6) removed all 31 gl_kvm_gui-gated routes, leaving exactly one
+    exe-gated caller (server.py, /hid/ws for gl-pion) and making this look
+    nearly unused. It is slated for REUSE by the beacon -- see that plan's
+    open decision on the primitive.
+
+    Note this returns True with NO credential of any kind, so it is an
+    authentication mechanism and not a filter: any route carrying
+    allowed_exe_paths is fully authenticated by this function alone. It holds
+    against spoofing (SO_PEERCRED fails on TCP, and an HTTP request via nginx
+    resolves to nginx's own binary because nginx proxies over the unix socket),
+    but it authenticates a PATH rather than a principal, and 0660 on
+    /run/kvmd/kvmd.sock is the real outer gate. docs/audit.md section 3b.
     """
     if exposed.allowed_exe_paths:
         exe_path = get_request_exe_path(req)
@@ -165,7 +219,7 @@ async def check_request_auth(auth_manager: AuthManager, exposed: HttpExposed, re
         return
     if not auth_manager.is_auth_required(exposed):
         return
-    for checker in [_check_xhdr, _check_header_token, _check_query_token, _check_token, _check_basic, _check_usc]:
+    for checker in [_check_xhdr, _check_header_token, _check_token, _check_basic, _check_usc]:
         if (await checker(auth_manager, exposed, req)):
             return
     raise UnauthorizedError()
@@ -182,73 +236,45 @@ class AuthApi:
         if self.__auth_manager.is_auth_enabled():
             credentials = await req.post()
 
-            # Get client IP for rate limiting
-            client_ip = self.__auth_manager._get_client_ip(dict(req.headers))
+            # Identified from the socket peer, for the access log only.
+            client_ip = get_client_ip(req)
 
-            try:
-                user = valid_user(credentials.get("user", ""))
-                passwd = valid_passwd(credentials.get("passwd", ""))
-                expire = valid_expire(credentials.get("expire", "0"))
+            user = valid_user(credentials.get("user", ""))
+            passwd = valid_passwd(credentials.get("passwd", ""))
+            expire = valid_expire(credentials.get("expire", "0"))
 
-                # 解析 User-Agent：设备类型 & 浏览器（始终执行，与是否启用两步登录无关）
-                user_agent = req.headers.get("User-Agent", "")
-                device_type, browser = parse_user_agent(user_agent)
-                get_logger(0).info(
-                    "Login request from %s | device=%s, browser=%s | UA: %s",
-                    client_ip, device_type, browser, user_agent,
-                )
+            # 解析 User-Agent：设备类型 & 浏览器
+            user_agent = req.headers.get("User-Agent", "")
+            device_type, browser = parse_user_agent(user_agent)
+            get_logger(0).info(
+                "Login request from %s | device=%s, browser=%s | UA: %s",
+                client_ip, device_type, browser, user_agent,
+            )
 
-                # Check if two-step login is enabled
-                if self.__auth_manager.is_two_step_login_enabled():
-                    two_step_token = await self.__auth_manager.pre_login(
-                        user=user,
-                        passwd=passwd,
-                        expire=expire,
-                        client_ip=client_ip,
-                        user_agent=user_agent,
-                    )
-                    if two_step_token:
-                        return make_json_response({
-                            "two_step_required": True,
-                            "two_step_token": two_step_token,
-                            "expires_in": self.__auth_manager.get_two_step_expire(),
-                        })
-                    raise ForbiddenError()
-                else:
-                    # Original single-step login
-                    (token, failed_since_last_success) = await self.__auth_manager.login(
-                        user=user,
-                        passwd=passwd,
-                        expire=expire,
-                        client_ip=client_ip,
-                    )
-                    if token:
-                        return make_json_response({
-                            "token": token,
-                            "failed_since_last_success": failed_since_last_success,
-                        }, set_cookies={_COOKIE_AUTH_TOKEN: token})
-                    raise ForbiddenError()
-            except RateLimitError as ex:
-                # Return 429 Too Many Requests for rate limiting
+            (token, failed_since_last_success) = await self.__auth_manager.login(
+                user=user,
+                passwd=passwd,
+                expire=expire,
+            )
+            if token:
                 return make_json_response({
-                    "error": "RateLimitError",
-                    "error_msg": str(ex),
-                    "remaining_time": ex.remaining_time
-                }, status=429)
+                    "token": token,
+                    "failed_since_last_success": failed_since_last_success,
+                }, set_cookies={_COOKIE_AUTH_TOKEN: token},
+                    secure_cookies=is_request_secure(req))
+            raise ForbiddenError()
         return make_json_response()
 
     @exposed_http("POST", "/auth/logout", allow_usc=False)
     async def __logout_handler(self, req: Request) -> Response:
         if self.__auth_manager.is_auth_enabled():
-            # 从每个来源获取 token，如果有提供就注销
+            # 从 header / cookie 获取 token，如果有提供就注销。
+            # 不再接受 URL 查询串里的 token,见 docs/audit.md (R5.9)。
             header_token = req.headers.get("Token", "")
-            query_token = req.query.get("auth_token", "")
             cookie_token = req.cookies.get(_COOKIE_AUTH_TOKEN, "")
 
             if header_token:
                 self.__auth_manager.logout(valid_auth_token(header_token))
-            if query_token:
-                self.__auth_manager.logout(valid_auth_token(query_token))
             if cookie_token:
                 self.__auth_manager.logout(valid_auth_token(cookie_token))
         return make_json_response()
@@ -258,133 +284,10 @@ class AuthApi:
     async def __check_handler(self, _: Request) -> Response:
         return make_json_response()
 
-    @exposed_http("POST", "/auth/two_step_complete", auth_required=False, allow_usc=False)
-    async def __two_step_complete_handler(self, req: Request) -> Response:
-        """两步登录第二步：用临时 token 换取正式 token"""
-        if self.__auth_manager.is_auth_enabled():
-            data = await req.post()
-            two_step_token = data.get("two_step_token", "").strip()
-
-            if not two_step_token:
-                return make_json_response({
-                    "error": "BadRequest",
-                    "error_msg": "Missing two_step_token parameter"
-                }, status=400)
-
-            (token, status, failed_since_last_success) = self.__auth_manager.complete_two_step_login(two_step_token)
-            if status == "ok":
-                return make_json_response({
-                    "token": token,
-                    "failed_since_last_success": failed_since_last_success,
-                }, set_cookies={_COOKIE_AUTH_TOKEN: token})
-            elif status == "pending":
-                return make_json_response({"status": "pending"})
-            else:
-                # "expired" or "invalid"
-                raise ForbiddenError()
-        return make_json_response()
-
-    @exposed_http("GET", "/auth/two_step_pending", auth_required=False, allow_usc=False, allowed_exe_paths=["/usr/sbin/gl_kvm_gui"])
-    async def __two_step_pending_handler(self, _: Request) -> Response:
-        #获取待审批的两步登录信息
-        pending = self.__auth_manager.get_pending_two_step_session()
-        if pending:
-            return make_json_response({"pending": True, **pending})
-        return make_json_response({"pending": False})
-
-    @exposed_http("POST", "/auth/two_step_approve", auth_required=False, allow_usc=False, allowed_exe_paths=["/usr/sbin/gl_kvm_gui"])
-    async def __two_step_approve_handler(self, req: Request) -> Response:
-        #批准两步登录请求
-        data = await req.post()
-        two_step_token = data.get("two_step_token", "").strip()
-
-        if not two_step_token:
-            return make_json_response({
-                "approved": False,
-                "error": "Missing two_step_token parameter"
-            }, status=400)
-
-        approved = self.__auth_manager.approve_two_step_session(two_step_token)
-        return make_json_response({"approved": approved})
-
-    @exposed_http("POST", "/auth/two_step_reject", auth_required=False, allow_usc=False, allowed_exe_paths=["/usr/sbin/gl_kvm_gui"])
-    async def __two_step_reject_handler(self, req: Request) -> Response:
-        #拒绝两步登录请求
-        data = await req.post()
-        two_step_token = data.get("two_step_token", "").strip()
-
-        if not two_step_token:
-            return make_json_response({
-                "rejected": False,
-                "error": "Missing two_step_token parameter"
-            }, status=400)
-
-        rejected = self.__auth_manager.reject_two_step_session(two_step_token)
-        return make_json_response({"rejected": rejected})
-
-    @exposed_http("GET", "/auth/two_step_login", auth_required=True, allow_usc=False, allowed_exe_paths=["/usr/sbin/gl_kvm_gui"])
-    async def __two_step_login_get_handler(self, _: Request) -> Response:
-        """查询两步登录功能的启用状态"""
-        return make_json_response({
-            "enabled": self.__auth_manager.is_two_step_login_enabled()
-        })
-
-    @exposed_http("POST", "/auth/two_step_login", auth_required=True, allow_usc=False, allowed_exe_paths=["/usr/sbin/gl_kvm_gui"])
-    async def __two_step_login_put_handler(self, req: Request) -> Response:
-        """动态启用或关闭两步登录功能"""
-        data = await req.json()
-        enabled = data.get("enabled")
-        if not isinstance(enabled, bool):
-            return make_json_response({
-                "error": "BadRequest",
-                "error_msg": "Missing or invalid 'enabled' field (must be JSON boolean)"
-            }, status=400)
-        self.__auth_manager.set_two_step_login_enabled(enabled)
-        # 持久化到 boot.yaml，重启后状态不丢失
-        await _set_yaml_value("kvmd/auth/two_step_login/enabled", enabled)
-        return make_json_response({"enabled": enabled})
-
-    @exposed_http("GET", "/auth/rate_limit_status")
-    async def __rate_limit_status_handler(self, req: Request) -> Response:
-        if self.__auth_manager.is_auth_enabled():
-            client_ip = req.query.get("client_ip")
-            if not client_ip:
-                # If no specific client_ip provided, use requesting client's IP
-                client_ip = self.__auth_manager._get_client_ip(dict(req.headers))
-
-            status = await self.__auth_manager.get_rate_limit_status(client_ip)
-            return make_json_response(status)
-        return make_json_response({"enabled": False})
-
-    @exposed_http("GET", "/auth/locked_clients")
-    async def __locked_clients_handler(self, _: Request) -> Response:
-        if self.__auth_manager.is_auth_enabled():
-            locked_clients = await self.__auth_manager.get_all_locked_clients()
-            return make_json_response({"locked_clients": locked_clients})
-        return make_json_response({"enabled": False, "locked_clients": {}})
-
-    @exposed_http("POST", "/auth/unlock_client")
-    async def __unlock_client_handler(self, req: Request) -> Response:
-        if self.__auth_manager.is_auth_enabled():
-            data = await req.post()
-            client_ip = data.get("client_ip", "").strip()
-            if not client_ip:
-                return make_json_response({
-                    "error": "BadRequest",
-                    "error_msg": "Missing client_ip parameter"
-                }, status=400)
-
-            unlocked = await self.__auth_manager.unlock_client(client_ip)
-            return make_json_response({
-                "unlocked": unlocked,
-                "client_ip": client_ip
-            })
-        return make_json_response({"enabled": False})
-
     @exposed_http("GET", "/same_check", auth_required=False, allow_usc=False)
     async def __same_check_handler(self, req: Request) -> Response:
         # Get client IP address
-        client_ip = self.__auth_manager._get_client_ip(dict(req.headers))
+        client_ip = get_client_ip(req)
 
         # Check if request is from local network
         if not _is_local_network(client_ip):

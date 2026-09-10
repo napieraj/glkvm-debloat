@@ -104,6 +104,7 @@ def main(argv: (list[str] | None)=None) -> None:
         auth_manager=AuthManager(
             enabled=config.auth.enabled,
             expire=config.auth.expire,
+            extend=config.auth.extend,
             usc_users=config.auth.usc.users,
             usc_groups=config.auth.usc.groups,
             unauth_paths=([] if config.prometheus.auth.enabled else ["/export/prometheus/metrics"]),
@@ -115,14 +116,8 @@ def main(argv: (list[str] | None)=None) -> None:
             ext_type=config.auth.external.type,
             ext_kwargs=(config.auth.external._unpack(ignore=["type"]) if config.auth.external.type else {}),
 
-            totp_secret_path=config.auth.totp.secret.file,
 
-            rate_limit_enabled=config.auth.rate_limit.enabled,
-            rate_limit_max_attempts=config.auth.rate_limit.max_attempts,
-            rate_limit_time_window=config.auth.rate_limit.time_window,
-            rate_limit_lockout_duration=config.auth.rate_limit.lockout_duration,
 
-            two_step_login_enabled=config.auth.two_step_login.enabled,
         ),
         init_manager=InitManager(),
         info_manager=InfoManager(global_config),

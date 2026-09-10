@@ -46,8 +46,6 @@ RUN pacman --noconfirm --ask=4 -Syy \
 		python-async-lru \
 		python-periphery \
 		python-passlib \
-		python-pyotp \
-		python-qrcode \
 		python-pyserial \
 		python-setproctitle \
 		python-psutil \

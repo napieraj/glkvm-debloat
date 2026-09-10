@@ -66,9 +66,6 @@ from ..validators.basic import valid_string_list
 from ..validators.auth import valid_user
 from ..validators.auth import valid_users_list
 from ..validators.auth import valid_expire
-from ..validators.auth import valid_rate_limit_max_attempts
-from ..validators.auth import valid_rate_limit_time_window
-from ..validators.auth import valid_rate_limit_lockout_duration
 
 from ..validators.os import valid_abs_path
 from ..validators.os import valid_abs_file
@@ -430,6 +427,10 @@ def _get_config_scheme() -> dict:
             "auth": {
                 "enabled": Option(True, type=valid_bool),
                 "expire":  Option(43200,    type=valid_expire),  # 12 hours in seconds
+                # Upstream defaults this to False. Kept True here so that a session
+                # with a live WebSocket does not start expiring where the fork's
+                # old always-on sliding refresh used to keep it alive.
+                "extend":  Option(True,     type=valid_bool),
 
                 "usc": {
                     "users":  Option([], type=valid_users_list),  # PiKVM username has a same regex as a UNIX username
@@ -447,22 +448,7 @@ def _get_config_scheme() -> dict:
                     # Dynamic content
                 },
 
-                "totp": {
-                    "secret": {
-                        "file": Option("/etc/kvmd/user/totp.secret", type=valid_abs_path, if_empty=""),
-                    },
-                },
 
-                "rate_limit": {
-                    "enabled":           Option(True, type=valid_bool),
-                    "max_attempts":      Option(10,   type=valid_rate_limit_max_attempts),
-                    "time_window":       Option(600,  type=valid_rate_limit_time_window),
-                    "lockout_duration":  Option(600,  type=valid_rate_limit_lockout_duration),
-                },
-
-                "two_step_login": {
-                    "enabled": Option(False, type=valid_bool),
-                },
             },
 
             "info": {  # Accessed via global config, see kvmd/info for details
@@ -659,7 +645,6 @@ def _get_config_scheme() -> dict:
             "manufacturer":   Option("Glinet", type=valid_stripped_string),
             "product":        Option("Glinet Composite Device", type=valid_stripped_string),
             "serial":         Option("CAFEBABE", type=valid_stripped_string, if_none=None),
-            "config":         Option("",     type=valid_stripped_string),
             "device_version": Option(-1,     type=functools.partial(valid_number, min=-1, max=0xFFFF)),
             "usb_version":    Option(0x0200, type=valid_otg_id),
             "max_power":      Option(500,    type=functools.partial(valid_number, min=50, max=500)),

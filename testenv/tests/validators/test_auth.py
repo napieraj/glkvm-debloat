@@ -82,14 +82,12 @@ def test_fail__valid_users_list(arg: Any) -> None:  # pylint: disable=invalid-na
 
 
 # =====
+# The fork's valid_passwd requires 5..63 printable ASCII characters
+# (validators/auth.py:45); upstream imposed no minimum length. The short
+# arguments below therefore moved from the ok list to the fail list.
 @pytest.mark.parametrize("arg", [
     "glados",
-    "test",
-    "_",
     "_foo_bar_",
-    " aix",
-    "   ",
-    "",
     " O(*#&@)FD*S)D(F   ",
 ])
 def test_ok__valid_passwd(arg: Any) -> None:
@@ -103,6 +101,13 @@ def test_ok__valid_passwd(arg: Any) -> None:
     "\n\n",
     "\r",
     None,
+
+    # Shorter than the fork's five-character minimum.
+    "test",
+    "_",
+    " aix",
+    "   ",
+    "",
 ])
 def test_fail__valid_passwd(arg: Any) -> None:
     with pytest.raises(ValidatorError):
