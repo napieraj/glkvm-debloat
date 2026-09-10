@@ -159,7 +159,21 @@ system, it is `/etc/kvmd/user/init_state.json`: `_load_state()` sets
 constructor's `False` in place when the file is unreadable or malformed
 (`init.py:51–77`). The flag fails open.
 
-*fork-only · verified · `api/init.py:62–67`, `init.py:51–77, 95–163`*
+**FIXED on this branch — the route is deleted.** `GET /init/init` is gone, so
+there is no longer any unauthenticated path that sets root's `/etc/shadow` entry.
+The fail-open `inited` flag (`init.py:51-77`) is unchanged and no longer matters
+for this finding: nothing reads it to decide whether to accept a password from an
+anonymous caller.
+
+Two things this leaves behind, deliberately. `InitManager.init()` still exists
+and is now reachable from no route at all — it is kept because the enrolment path
+in the plan's step 13 needs exactly this operation, and it is called out here so
+that whoever wires it up knows they are re-exposing the method behind CRITICAL 3
+and must not do it unauthenticated. And `POST /init/change_password` survives; it
+is authenticated, and its own finding below (credentials in the query string) is
+separate and still open.
+
+*fork-only · verified · `api/init.py:62–67`, `init.py:51–77, 95–163` (as found); route deleted on this branch*
 
 ### HIGH — A route hands out the device's TLS private key
 

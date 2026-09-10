@@ -14,7 +14,6 @@ GET /hid auth=True usc=True exe=-
 GET /hid/keymaps auth=True usc=True exe=-
 GET /hid/ws auth=True usc=True exe=/usr/bin/gl-pion
 GET /info auth=True usc=True exe=-
-GET /init/init auth=False usc=True exe=-
 GET /init/is_inited auth=False usc=True exe=-
 GET /log auth=True usc=True exe=-
 GET /msd auth=True usc=True exe=-
