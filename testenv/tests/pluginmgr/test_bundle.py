@@ -20,6 +20,8 @@
 # ========================================================================== #
 
 
+import os
+import pathlib
 import hashlib
 
 import pytest
@@ -32,6 +34,7 @@ from kvmd.pluginmgr.bundle import require_entry
 from kvmd.pluginmgr.bundle import readback_for
 from kvmd.pluginmgr.manifest import canonical_json
 from kvmd.pluginmgr.manifest import parse_manifest
+from kvmd.pluginmgr.treehash import TreeFile
 from kvmd.pluginmgr.treehash import tree_hash
 
 from .vectors import load_cases
@@ -97,9 +100,20 @@ def test_require_entry_refuses_missing_module() -> None:
     assert ex.value.code == CODE_BUNDLE_ENTRY_MISSING
 
 
-def test_readback_reports_placed_tree() -> None:
+def _place(tmp_path: pathlib.Path, files: list[TreeFile]) -> str:
+    root = str(tmp_path)
+    for file in files:
+        full = os.path.join(root, file.path)
+        os.makedirs(os.path.dirname(full), exist_ok=True)
+        with open(full, "wb") as handle:
+            handle.write(file.data)
+    return root
+
+
+def test_readback_reports_placed_tree(tmp_path: pathlib.Path) -> None:
     files = _reference_files()
-    body = readback_for("a" * 64, files)
+    root = _place(tmp_path, files)
+    body = readback_for("a" * 64, root)
     assert body["v"] == 1
     assert body["sha256"] == "a" * 64
     assert body["tree_sha256"] == tree_hash(files)
@@ -109,10 +123,44 @@ def test_readback_reports_placed_tree() -> None:
         assert entry["sha256"] == hashlib.sha256(got.data).hexdigest()
 
 
-def test_readback_detects_drift() -> None:
-    # Invariant 4: the readback hashes what is on disk, so a file that changed
-    # after placement produces a different tree hash and is flagged.
+def test_readback_detects_on_disk_drift(tmp_path: pathlib.Path) -> None:
+    """
+    The test the disk re-read exists for.
+
+    The bundle is untouched and would hash correctly; only the placed file
+    changed. A readback that hashed the received bundle would pass this and
+    report a healthy install over a corrupted disk -- which is why it must not.
+    """
+
     files = _reference_files()
-    drifted = list(files)
-    drifted[0] = type(drifted[0])(path=drifted[0].path, data=drifted[0].data + b"# tampered\n")
-    assert readback_for("a" * 64, drifted)["tree_sha256"] != readback_for("a" * 64, files)["tree_sha256"]
+    root = _place(tmp_path, files)
+    clean = readback_for("a" * 64, root)
+
+    # Corrupt one placed file. The bundle in memory is deliberately untouched.
+    with open(os.path.join(root, files[0].path), "ab") as handle:
+        handle.write(b"# tampered\n")
+
+    drifted = readback_for("a" * 64, root)
+    assert drifted["tree_sha256"] != clean["tree_sha256"], \
+        "readback did not notice an on-disk change -- it is hashing the received bundle"
+    assert drifted["tree_sha256"] != tree_hash(files), \
+        "readback matches the bundle's hash despite the disk differing"
+
+
+def test_readback_detects_truncation(tmp_path: pathlib.Path) -> None:
+    # The partial-write case.
+    files = _reference_files()
+    root = _place(tmp_path, files)
+    with open(os.path.join(root, files[0].path), "wb") as handle:
+        handle.write(files[0].data[:len(files[0].data) // 2])
+    assert readback_for("a" * 64, root)["tree_sha256"] != tree_hash(files)
+
+
+def test_readback_detects_missing_file(tmp_path: pathlib.Path) -> None:
+    # The failed-rename case.
+    files = _reference_files()
+    root = _place(tmp_path, files)
+    os.remove(os.path.join(root, files[0].path))
+    body = readback_for("a" * 64, root)
+    assert body["tree_sha256"] != tree_hash(files)
+    assert len(body["entries"]) == len(files) - 1

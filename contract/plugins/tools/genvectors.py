@@ -548,3 +548,53 @@ write("bundles.json", {
     ),
     "cases": bcases,
 })
+
+# ===================== offer admission vectors =====================
+# Admission runs before a fetch is sent and before any chunk moves. It is a
+# distinct check from the verify gate's step 2, which compares the *assembled*
+# length against the declared size and cannot run until the bytes have arrived.
+acases = []
+
+
+def acase(cid, desc, m, code=None):
+    acases.append({
+        "id": cid, "description": desc, "manifest": m,
+        "expect": ("refuse" if code else "admit"),
+        **({"code": code} if code else {}),
+    })
+
+
+acase("admit-reference", "The reference manifest is admitted.", GOOD)
+acase("admit-at-cap",
+      "A declared size exactly at the 8 MiB ceiling is admitted.",
+      manifest(payload={"sha256": BUNDLE_SHA, "size": 8388608}))
+acase("refuse-over-cap",
+      "One byte over the ceiling. Because a dropped transfer restarts from "
+      "chunk 0, an untransferable bundle must be refused while it is still a "
+      "declaration rather than discovered on the last chunk.",
+      manifest(payload={"sha256": BUNDLE_SHA, "size": 8388609}), "manifest.payload_too_large")
+acase("refuse-absurd-size",
+      "A wildly oversized declaration is refused without allocating anything.",
+      manifest(payload={"sha256": BUNDLE_SHA, "size": 4294967296}), "manifest.payload_too_large")
+acase("refuse-zero-size", "An empty bundle is not a plugin.",
+      manifest(payload={"sha256": BUNDLE_SHA, "size": 0}), "manifest.bad_payload_size")
+acase("refuse-unsafe-entry",
+      "Admission validates the whole manifest, so a traversal entry never "
+      "reaches the point of transferring bytes.",
+      manifest(entry="plugins/ugpio/../../evil.py", payload=GOOD["payload"]), "manifest.bad_entry")
+acase("refuse-management-capabilities-on-device",
+      "Tier violations are refused before transfer too.",
+      manifest(payload=GOOD["payload"], capabilities=["fleet.admin"]),
+      "manifest.capabilities_not_allowed")
+
+write("admission.json", {
+    "v": 1,
+    "description": (
+        "Offer-admission vectors. Run admit(manifest) -- the check a device performs "
+        "on plugin.offer, BEFORE sending plugin.fetch and before any payload chunk "
+        "moves. An 'admit' case must pass; a 'refuse' case must refuse with the given "
+        "code and no fetch may be sent. Admission neither sees nor needs the payload, "
+        "which is exactly what distinguishes it from the verify gate."
+    ),
+    "cases": acases,
+})

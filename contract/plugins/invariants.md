@@ -74,13 +74,27 @@ a `readback` arrives; a `tree_sha256` that differs from the server's own
 recomputation from the bundle it sent is flagged as
 `install.readback_mismatch` drift.
 
+The device MUST hash files **re-read from the placed location**, never the
+bundle it received. The two agree only in the happy path and differ in exactly
+the cases this invariant exists for: a partial write, a failed rename, an
+overlay that did not survive the ro remount, or a later local edit. Hashing the
+received bundle would restate what chunk sequencing already proved and would
+make this invariant a transfer receipt rather than a statement about the disk.
+
+The device computes its side from the disk and the server computes its side
+from the bundle. The comparison is meaningful precisely because the two sources
+are different; compute both from the same bytes and it proves nothing.
+
 Drift is flagged, never ignored and never silently re-pushed — a device that
 disagrees with the catalog is a fact to surface, not a race to win.
 
 Vectors: `vectors/treehash.json` (both sides must compute the same tree hash,
 or every readback comparison is meaningless).
-Status: **now** (tree hash agreement) + **half** (the open-until-readback
-state machine and the drift flag).
+Mutation: make readback hash the received bundle instead of re-reading the
+placed files. A test that places a bundle, corrupts a file on disk, and then
+reads back must go red.
+Status: **now** (tree hash agreement, disk re-read) + **half** (the
+open-until-readback state machine and the drift flag).
 
 ---
 
@@ -131,3 +145,7 @@ Status: **now** (parse) + **half** (each side refuses the other's tier).
 - **Chunk reassembly** — a payload split at chunk boundaries reassembles to the
   original bytes; a gap, a repeat, an unknown flag bit and an oversized chunk
   each refuse.
+- **Offer admission** — an offer declaring a `payload.size` above the ceiling is
+  refused before a `fetch` is sent, so an untransferable bundle is rejected
+  while it is still a claim. Distinct from the gate's assembled-length check,
+  which cannot run until the bytes have already arrived.

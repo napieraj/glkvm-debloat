@@ -107,8 +107,29 @@ Requests the bundle for a previously offered manifest, keyed by its
 connection — a device cannot use `fetch` to enumerate the catalog.
 
 There is no resume/offset in v1. A dropped transfer is retried from the start;
-bundles are capped at 8 MiB and the tunnel is already reliable, so resume is
-complexity without a paying customer.
+bundles are capped and the tunnel is already reliable, so resume is complexity
+without a paying customer.
+
+Because a retry restarts from chunk 0, bundle size and link reliability
+multiply: a large bundle over a lossy link may never complete. v1 bounds that
+rather than solving it, and the bound is enforced **before the first chunk
+moves**:
+
+> **A device MUST admit an offer before sending `fetch`.** Admission validates
+> the manifest, which refuses `manifest.payload_too_large` for a declared
+> `payload.size` above the cap. A bundle too large to transfer is refused while
+> it is still a claim, not discovered on the last chunk.
+
+Admission is a distinct check from the verify gate's step 2. Gate step 2
+compares the *assembled* length against the declared size and can only run once
+the bytes have arrived. Admission compares the *declared* size against the
+protocol ceiling and runs before any arrive. Neither substitutes for the other:
+without admission an oversized bundle is transferred in full and then refused;
+without gate step 2 a truthful declaration is never checked against reality.
+
+The receiver additionally bounds reassembly at exactly `payload.size`, so a
+sender that declares one size and streams more is cut off at the offending
+chunk rather than at the end of the transfer.
 
 ### `payload` (0x02) — server -> device
 
@@ -164,6 +185,18 @@ make invariant 3 untestable from the server's side.
 Sent after every `installed`. Reports what is **actually on disk**, hashed by
 the device, not what the device was told to write.
 
+> **The device MUST re-read the placed files from the loader-owned location and
+> hash those bytes. It MUST NOT hash the bundle it received.**
+
+This is the whole point of the message, and the two are the same value only in
+the happy path. They differ in exactly the cases readback exists for: a partial
+write, a failed rename, an overlay that did not survive the ro remount, or a
+later local edit. Hashing the in-memory bundle proves the transfer arrived
+intact — which the chunk sequencing already told you — and proves nothing about
+the disk. Hashing the re-read files proves the device's disk matches what was
+sent, which is the only claim worth making, and it is the claim drift detection
+and any later migration attestation actually lean on.
+
 - `sha256` — echoes the manifest's `payload.sha256`, identifying the transfer.
 - `tree_sha256` — the canonical tree hash (below) of the placed tree.
 - `entries` — per-file detail, sorted by `path`, so drift is actionable rather
@@ -172,7 +205,9 @@ the device, not what the device was told to write.
 
 The server recomputes the expected tree hash **from the bundle it still holds**
 and compares. This is why the manifest needs no extra hash field: the server
-has the bytes it sent, so it can derive the expectation itself.
+has the bytes it sent, so it can derive the expectation itself. The device
+derives its side from the disk, the server from the bundle, and the comparison
+is meaningful precisely because the two are computed from different sources.
 
 An install is not complete until a `readback` arrives and matches. A mismatch
 is flagged as drift — it is never ignored and never silently re-pushed.

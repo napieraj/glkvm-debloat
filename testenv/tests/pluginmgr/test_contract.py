@@ -43,6 +43,12 @@ def test_contract_sha256() -> None:
 
     files: list[TreeFile] = []
     for (dirpath, _, names) in os.walk(CONTRACT_PATH):
+        # tools/ is machinery, not contract: a cosmetic edit to the generator
+        # must not move the hash and make every repo that has not yet pulled it
+        # report a spurious mismatch. A generator change that actually changes
+        # the vectors still moves the hash, via vectors/.
+        if os.path.relpath(dirpath, CONTRACT_PATH).split(os.sep)[0] == "tools":
+            continue
         for name in names:
             if name == "CONTRACT-SHA256":
                 continue

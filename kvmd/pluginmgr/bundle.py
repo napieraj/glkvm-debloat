@@ -21,6 +21,7 @@
 
 
 import io
+import os
 import hashlib
 import tarfile
 
@@ -116,12 +117,49 @@ def require_entry(files: list[TreeFile], manifest: Manifest) -> None:
         raise RefusalError(CODE_BUNDLE_ENTRY_MISSING, f"bundle has no {manifest.entry!r}")
 
 
-def readback_for(manifest_sha256: str, files: list[TreeFile]) -> dict:
+def read_placed_tree(root: str) -> list[TreeFile]:
     """
-    Builds the readback body for a placed tree: what is actually on disk,
-    hashed here rather than assumed from what this device was told to write.
+    Re-reads a placed plugin tree from disk.
+
+    Paths are returned relative to root with POSIX separators, matching the
+    bundle entry paths, so a readback is directly comparable with the bundle
+    the server still holds.
     """
 
+    files: list[TreeFile] = []
+    for (dirpath, _, names) in os.walk(root):
+        for name in names:
+            full = os.path.join(dirpath, name)
+            if os.path.islink(full) or not os.path.isfile(full):
+                # A symlink appearing under the loader root after placement is
+                # itself a finding, not something to follow and hash.
+                raise RefusalError(CODE_BUNDLE_UNSAFE_ENTRY, f"placed entry {full!r} is not a regular file")
+            with open(full, "rb") as file:
+                data = file.read()
+            files.append(TreeFile(path=os.path.relpath(full, root).replace(os.sep, "/"), data=data))
+    return files
+
+
+def readback_for(manifest_sha256: str, root: str) -> dict:
+    """
+    Builds the readback body by re-reading the placed tree from disk.
+
+    It deliberately takes a root and not the bundle's files: this device must
+    hash what is actually on disk, never the bundle it received. The two agree
+    only in the happy path and differ in exactly the cases readback exists for
+    -- a partial write, a failed rename, an overlay that did not survive the ro
+    remount, or a later local edit. Hashing the received bundle would restate
+    what chunk sequencing already proved and would say nothing about the disk.
+
+    The server derives its expectation from the bundle it still holds. The
+    comparison is meaningful precisely because the two sides are computed from
+    different sources.
+    """
+
+    return _readback_of(manifest_sha256, read_placed_tree(root))
+
+
+def _readback_of(manifest_sha256: str, files: list[TreeFile]) -> dict:
     body: dict = {
         "entries": [],
         "sha256": manifest_sha256,

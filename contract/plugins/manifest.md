@@ -104,6 +104,12 @@ hash the bundle before it may touch the disk. An unbounded payload is a
 memory-exhaustion path that the verify gate cannot protect against, because it
 is reached before verification is possible.
 
+The cap is enforced at **offer admission**, before a `fetch` is sent and before
+any chunk moves — see `wire.md`. Because a dropped transfer restarts from chunk
+0, size and link reliability multiply, and a bundle too large to transfer must
+be refused while it is still a declaration rather than discovered on the last
+chunk.
+
 ### `signature` (optional in v1 — the stub)
 
 If present it is an object; its `alg`, `value` and `key_id` members are strings

@@ -23,14 +23,23 @@ copy the whole directory into both repos in the same cycle, and update both
 implementations. A contract change that lands in only one repo is a bug that
 both suites will report.
 
-`CONTRACT-SHA256` is the **canonical tree hash** of this directory, excluding
-`CONTRACT-SHA256` itself — deliberately the same algorithm as the readback tree
-hash defined in `wire.md`. There is one hashing algorithm in this contract, not
-two, so each repo verifies contract sync with the function it already had to
+`CONTRACT-SHA256` is the **canonical tree hash** of the *normative* contract —
+the documents and the vectors — deliberately the same algorithm as the readback
+tree hash defined in `wire.md`. There is one hashing algorithm in this contract,
+not two, so each repo verifies contract sync with the function it already had to
 implement and test.
 
+Two paths are excluded from the hash:
+
+- `CONTRACT-SHA256` itself, which cannot contain its own hash.
+- `tools/`, which is machinery rather than contract. Editing a comment in the
+  generator would otherwise move the hash without the contract meaning anything
+  different, and every repo that had not yet pulled the cosmetic edit would
+  report a spurious mismatch. A generator change that actually changes the
+  vectors still moves the hash, because `vectors/` is inside it.
+
 ```
-for each file under contract/plugins/ except CONTRACT-SHA256:
+for each file under contract/plugins/, excluding CONTRACT-SHA256 and tools/:
     p = path relative to contract/plugins/, POSIX separators
 lines = sorted(p bytewise ascending) mapped to:
     sha256_hex(file_bytes) + "  " + p + "\n"

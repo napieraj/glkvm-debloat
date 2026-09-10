@@ -1,0 +1,133 @@
+{
+  "cases": [
+    {
+      "description": "The reference manifest is admitted.",
+      "expect": "admit",
+      "id": "admit-reference",
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      }
+    },
+    {
+      "description": "A declared size exactly at the 8 MiB ceiling is admitted.",
+      "expect": "admit",
+      "id": "admit-at-cap",
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 8388608
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      }
+    },
+    {
+      "code": "manifest.payload_too_large",
+      "description": "One byte over the ceiling. Because a dropped transfer restarts from chunk 0, an untransferable bundle must be refused while it is still a declaration rather than discovered on the last chunk.",
+      "expect": "refuse",
+      "id": "refuse-over-cap",
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 8388609
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      }
+    },
+    {
+      "code": "manifest.payload_too_large",
+      "description": "A wildly oversized declaration is refused without allocating anything.",
+      "expect": "refuse",
+      "id": "refuse-absurd-size",
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 4294967296
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      }
+    },
+    {
+      "code": "manifest.bad_payload_size",
+      "description": "An empty bundle is not a plugin.",
+      "expect": "refuse",
+      "id": "refuse-zero-size",
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 0
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      }
+    },
+    {
+      "code": "manifest.bad_entry",
+      "description": "Admission validates the whole manifest, so a traversal entry never reaches the point of transferring bytes.",
+      "expect": "refuse",
+      "id": "refuse-unsafe-entry",
+      "manifest": {
+        "entry": "plugins/ugpio/../../evil.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      }
+    },
+    {
+      "code": "manifest.capabilities_not_allowed",
+      "description": "Tier violations are refused before transfer too.",
+      "expect": "refuse",
+      "id": "refuse-management-capabilities-on-device",
+      "manifest": {
+        "capabilities": [
+          "fleet.admin"
+        ],
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      }
+    }
+  ],
+  "description": "Offer-admission vectors. Run admit(manifest) -- the check a device performs on plugin.offer, BEFORE sending plugin.fetch and before any payload chunk moves. An 'admit' case must pass; a 'refuse' case must refuse with the given code and no fetch may be sent. Admission neither sees nor needs the payload, which is exactly what distinguishes it from the verify gate.",
+  "v": 1
+}
