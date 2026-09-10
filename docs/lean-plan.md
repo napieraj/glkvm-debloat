@@ -21,7 +21,7 @@
 > Step 0's own instruction — re-derive line numbers at HEAD rather than
 > trusting the ones written here — now applies to this document itself.
 
-> **FOUR BUILD HAZARDS. All four have bitten in this project, two of them twice,
+> **SIX BUILD HAZARDS. All six have bitten in this project, three of them twice,
 > and every one returns SILENTLY rather than failing loudly.**
 >
 > **1. The local flake8 gate does not catch dead code.** flake8 reports unused
@@ -61,6 +61,35 @@
 > in order and with `;` per hazard 2:
 >
 >     git reset HEAD -- . ; git checkout HEAD -- . ; git clean -fdx
+>
+> **5. `git checkout -- <path>` on UNCOMMITTED work destroys it, with no stash
+> and no reflog.** The sibling of hazard 4, and the one that bites when reverting
+> a mutation: `git checkout -- <file>` restores from HEAD, so it discards every
+> uncommitted edit in that file, not just the mutation you meant to undo. Step 6
+> lost its whole `api/system.py` edit that way — four handlers, the constructor
+> reduction, the import fix — and it was recoverable only because the edits were
+> scripted and could be replayed verbatim. `git checkout` reverts to a COMMIT;
+> a mutation on uncommitted work must be reverted to a SNAPSHOT:
+>
+>     cp <file> $SNAP/<file>.ok      # before mutating
+>     ... mutate, run the test ...
+>     cp $SNAP/<file>.ok <file>      # never git checkout
+>
+> **6. The test deps are not all installed, and their absence reads as failure,
+> not as absence.** A run in a container missing `pytest-aiohttp`, `pytest-mock`
+> and `python-pam` reports **6 failed, 700 passed, 16 errors** — not "skipped",
+> not "cannot collect". Every one of those is the environment, and a bisect
+> against them finds nothing. Restore with:
+>
+>     python3 -m pip install --break-system-packages pytest-aiohttp pytest-mock python-pam
+>
+> and confirm the whole suite is green BEFORE trusting a red on your own change.
+> Related correction: `testenv/tox.ini` says `basepython = python3.12`, but in
+> the working container **pytest and the runtime deps are installed for 3.11**
+> and 3.12 has neither. Runs reported in this project's history as "green on
+> python3.12" were green on 3.11 — the tox config was read as if it described
+> the interpreter that actually ran. Check with `python3 -V` and
+> `python3 -c "import pytest"`, do not infer it from the config.
 
 > **A PARTIAL TESTENV GIVES A FALSE GREEN. Read this before believing any
 > "the tests pass" claim, including your own.**
