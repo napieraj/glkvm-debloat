@@ -1,0 +1,224 @@
+{
+  "cases": [
+    {
+      "description": "The v1 floor: integrity without authenticity.",
+      "expect": "accept",
+      "id": "gate-hashonly-accept",
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "payload_blob": "reference-bundle.tar",
+      "verifier": "hash-only"
+    },
+    {
+      "code": "payload.hash_mismatch",
+      "description": "One flipped byte, same length — so this is caught by the hash and not by the size check.",
+      "expect": "refuse",
+      "id": "gate-hashonly-corrupt-payload",
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "payload_blob": "reference-bundle-corrupt.tar",
+      "verifier": "hash-only"
+    },
+    {
+      "description": "noop accepts any payload. Dev only, and never a default in any real config.",
+      "expect": "accept",
+      "id": "gate-noop-accept",
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "payload_blob": "reference-bundle-corrupt.tar",
+      "verifier": "noop"
+    },
+    {
+      "code": "manifest.bad_entry",
+      "description": "The reason noop is survivable at all: it disables authenticity checking, not path safety. Structural validation runs for every verifier.",
+      "expect": "refuse",
+      "id": "gate-noop-still-validates-manifest",
+      "manifest": {
+        "entry": "plugins/ugpio/../../evil.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "payload_blob": "reference-bundle.tar",
+      "verifier": "noop"
+    },
+    {
+      "code": "payload.size_mismatch",
+      "description": "Gate step 2 holds even when the configured verifier does not hash.",
+      "expect": "refuse",
+      "id": "gate-noop-still-checks-size",
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10241
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "payload_blob": "reference-bundle.tar",
+      "verifier": "noop"
+    },
+    {
+      "code": "verify.refused",
+      "description": "INVARIANT 3, the load-bearing one: an otherwise perfectly valid offer is refused, and nothing may touch the disk. Mutation-check this case by removing the refuse-on-fail branch from the gate; the test must go red.",
+      "expect": "refuse",
+      "id": "gate-alwaysfail-refuses-valid-input",
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "payload_blob": "reference-bundle.tar",
+      "verifier": "always-fail"
+    },
+    {
+      "code": "manifest.entry_type_mismatch",
+      "description": "Precedence is part of the contract: a manifest violation is reported even when the verifier would also refuse, so the two implementations cannot disagree about which code comes back.",
+      "expect": "refuse",
+      "id": "gate-order-manifest-before-verify",
+      "manifest": {
+        "entry": "plugins/atx/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "payload_blob": "reference-bundle.tar",
+      "verifier": "always-fail"
+    },
+    {
+      "code": "payload.size_mismatch",
+      "description": "Gate step 2 precedes step 3.",
+      "expect": "refuse",
+      "id": "gate-order-size-before-verify",
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 99
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "payload_blob": "reference-bundle.tar",
+      "verifier": "always-fail"
+    },
+    {
+      "code": "manifest.bad_name",
+      "description": "Gate step 1 precedes step 2: both are wrong, the manifest code wins.",
+      "expect": "refuse",
+      "id": "gate-order-manifest-before-size",
+      "manifest": {
+        "entry": "plugins/ugpio/_bad.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "_bad",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 99
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "payload_blob": "reference-bundle.tar",
+      "verifier": "hash-only"
+    },
+    {
+      "code": "verify.unconfigured",
+      "description": "An absent verifier name resolves to a refusal, never to noop.",
+      "expect": "refuse",
+      "id": "gate-unconfigured-fails-closed",
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "payload_blob": "reference-bundle.tar",
+      "verifier": ""
+    },
+    {
+      "code": "verify.unconfigured",
+      "description": "'signed' is deliberately not a v1 tier: naming it must fail closed rather than silently downgrade.",
+      "expect": "refuse",
+      "id": "gate-unknown-verifier-fails-closed",
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "payload_blob": "reference-bundle.tar",
+      "verifier": "signed"
+    }
+  ],
+  "description": "Verify-gate vectors. Run Gate(verifier, manifest, payload) where payload is the bytes of vectors/blobs/<payload_blob>, and assert the outcome. Gate order is 1) validate manifest 2) check payload length against manifest.payload.size 3) call the verifier; the ordering cases pin that precedence down.",
+  "v": 1
+}

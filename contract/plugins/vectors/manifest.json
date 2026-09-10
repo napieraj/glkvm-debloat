@@ -1,0 +1,688 @@
+{
+  "cases": [
+    {
+      "canonical": "{\"entry\":\"plugins/ugpio/acme_relay.py\",\"firmware_compat\":\">=1.10.0\",\"model_compat\":\">=rm1pe\",\"name\":\"acme_relay\",\"payload\":{\"sha256\":\"2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64\",\"size\":10240},\"runtime\":\"device\",\"type\":\"ugpio\"}",
+      "description": "The reference device plugin: every required field, no optionals.",
+      "id": "valid-minimal",
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "valid": true
+    },
+    {
+      "canonical": "{\"entry\":\"plugins/ugpio/acme_relay.py\",\"firmware_compat\":\">=1.10.0\",\"model_compat\":\">=rm1pe\",\"name\":\"acme_relay\",\"payload\":{\"sha256\":\"2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64\",\"size\":10240},\"runtime\":\"device\",\"type\":\"ugpio\"}",
+      "description": "v1 manifests carry no signature block; its absence is never a refusal.",
+      "id": "valid-signature-stub-absent",
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "valid": true
+    },
+    {
+      "canonical": "{\"entry\":\"plugins/ugpio/acme_relay.py\",\"firmware_compat\":\">=1.10.0\",\"model_compat\":\">=rm1pe\",\"name\":\"acme_relay\",\"payload\":{\"sha256\":\"2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64\",\"size\":10240},\"runtime\":\"device\",\"signature\":{\"alg\":\"ed25519\",\"key_id\":\"deferred\",\"value\":\"deferred\"},\"type\":\"ugpio\"}",
+      "description": "A populated signature block is accepted and ignored by v1 verifiers, which is what lets signing land without a schema migration.",
+      "id": "valid-signature-stub-present",
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "device",
+        "signature": {
+          "alg": "ed25519",
+          "key_id": "deferred",
+          "value": "deferred"
+        },
+        "type": "ugpio"
+      },
+      "valid": true
+    },
+    {
+      "canonical": "{\"capabilities\":[\"device.read\",\"log.write\"],\"entry\":\"plugins/auth/fleet_audit.py\",\"firmware_compat\":\">=1.10.0\",\"model_compat\":\">=rm1pe\",\"name\":\"fleet_audit\",\"payload\":{\"sha256\":\"2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64\",\"size\":10240},\"runtime\":\"management\",\"type\":\"auth\"}",
+      "description": "Capabilities are permitted on the management tier.",
+      "id": "valid-management-with-capabilities",
+      "manifest": {
+        "capabilities": [
+          "device.read",
+          "log.write"
+        ],
+        "entry": "plugins/auth/fleet_audit.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "fleet_audit",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "management",
+        "type": "auth"
+      },
+      "valid": true
+    },
+    {
+      "canonical": "{\"entry\":\"plugins/ugpio/acme_relay.py\",\"firmware_compat\":\"*\",\"model_compat\":\"*\",\"name\":\"acme_relay\",\"payload\":{\"sha256\":\"2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64\",\"size\":10240},\"runtime\":\"device\",\"type\":\"ugpio\"}",
+      "description": "'*' matches any model or firmware.",
+      "id": "valid-compat-wildcard",
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": "*",
+        "model_compat": "*",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "valid": true
+    },
+    {
+      "canonical": "{\"entry\":\"plugins/ugpio/acme_relay.py\",\"firmware_compat\":\"1.10.0\",\"model_compat\":\"rm4pe\",\"name\":\"acme_relay\",\"payload\":{\"sha256\":\"2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64\",\"size\":10240},\"runtime\":\"device\",\"type\":\"ugpio\"}",
+      "description": "A bare token is an exact-match constraint.",
+      "id": "valid-compat-exact",
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": "1.10.0",
+        "model_compat": "rm4pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "valid": true
+    },
+    {
+      "code": "manifest.malformed",
+      "description": "Not JSON at all.",
+      "id": "malformed-not-json",
+      "raw": "{not json",
+      "valid": false
+    },
+    {
+      "code": "manifest.malformed",
+      "description": "Valid JSON, wrong shape.",
+      "id": "malformed-not-object",
+      "raw": "[]",
+      "valid": false
+    },
+    {
+      "canonical": "{\"entry\":\"plugins/ugpio/acme_relay.py\",\"extra_field\":\"surprise\",\"firmware_compat\":\">=1.10.0\",\"model_compat\":\">=rm1pe\",\"name\":\"acme_relay\",\"payload\":{\"sha256\":\"2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64\",\"size\":10240},\"runtime\":\"device\",\"type\":\"ugpio\"}",
+      "code": "manifest.malformed",
+      "description": "Unknown top-level fields are rejected, not ignored: the device and the server must never disagree about what a manifest said.",
+      "id": "malformed-unknown-field",
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "extra_field": "surprise",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "valid": false
+    },
+    {
+      "canonical": "{\"entry\":\"plugins/ugpio/acme_relay.py\",\"firmware_compat\":\">=1.10.0\",\"model_compat\":\">=rm1pe\",\"payload\":{\"sha256\":\"2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64\",\"size\":10240},\"runtime\":\"device\",\"type\":\"ugpio\"}",
+      "code": "manifest.malformed",
+      "description": "A required field is absent.",
+      "id": "malformed-missing-name",
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "valid": false
+    },
+    {
+      "canonical": "{\"entry\":\"plugins/ugpio/acme_relay.py\",\"firmware_compat\":\">=1.10.0\",\"model_compat\":\">=rm1pe\",\"name\":\"acme_relay\",\"runtime\":\"device\",\"type\":\"ugpio\"}",
+      "code": "manifest.malformed",
+      "description": "payload is required.",
+      "id": "malformed-missing-payload",
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "valid": false
+    },
+    {
+      "canonical": "{\"entry\":\"plugins/ugpio/_hidden.py\",\"firmware_compat\":\">=1.10.0\",\"model_compat\":\">=rm1pe\",\"name\":\"_hidden\",\"payload\":{\"sha256\":\"2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64\",\"size\":10240},\"runtime\":\"device\",\"type\":\"ugpio\"}",
+      "code": "manifest.bad_name",
+      "description": "kvmd's existing get_plugin_class treats a leading underscore as unknown, so a manifest may not mint one.",
+      "id": "name-leading-underscore",
+      "manifest": {
+        "entry": "plugins/ugpio/_hidden.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "_hidden",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "valid": false
+    },
+    {
+      "canonical": "{\"entry\":\"plugins/ugpio/Acme.py\",\"firmware_compat\":\">=1.10.0\",\"model_compat\":\">=rm1pe\",\"name\":\"Acme\",\"payload\":{\"sha256\":\"2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64\",\"size\":10240},\"runtime\":\"device\",\"type\":\"ugpio\"}",
+      "code": "manifest.bad_name",
+      "description": "Module names are lowercase.",
+      "id": "name-uppercase",
+      "manifest": {
+        "entry": "plugins/ugpio/Acme.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "Acme",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "valid": false
+    },
+    {
+      "canonical": "{\"entry\":\"plugins/ugpio/acme-relay.py\",\"firmware_compat\":\">=1.10.0\",\"model_compat\":\">=rm1pe\",\"name\":\"acme-relay\",\"payload\":{\"sha256\":\"2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64\",\"size\":10240},\"runtime\":\"device\",\"type\":\"ugpio\"}",
+      "code": "manifest.bad_name",
+      "description": "A dash is not valid in a Python module name.",
+      "id": "name-dash",
+      "manifest": {
+        "entry": "plugins/ugpio/acme-relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme-relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "valid": false
+    },
+    {
+      "canonical": "{\"entry\":\"plugins/ugpio/acme_relay.py\",\"firmware_compat\":\">=1.10.0\",\"model_compat\":\">=rm1pe\",\"name\":\"\",\"payload\":{\"sha256\":\"2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64\",\"size\":10240},\"runtime\":\"device\",\"type\":\"ugpio\"}",
+      "code": "manifest.bad_name",
+      "description": "Empty name.",
+      "id": "name-empty",
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "valid": false
+    },
+    {
+      "canonical": "{\"entry\":\"plugins/video/acme_relay.py\",\"firmware_compat\":\">=1.10.0\",\"model_compat\":\">=rm1pe\",\"name\":\"acme_relay\",\"payload\":{\"sha256\":\"2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64\",\"size\":10240},\"runtime\":\"device\",\"type\":\"video\"}",
+      "code": "manifest.bad_type",
+      "description": "No loader exists for this type.",
+      "id": "type-unknown",
+      "manifest": {
+        "entry": "plugins/video/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "device",
+        "type": "video"
+      },
+      "valid": false
+    },
+    {
+      "canonical": "{\"entry\":\"plugins/ugpio/acme_relay.py\",\"firmware_compat\":\">=1.10.0\",\"model_compat\":\">=rm1pe\",\"name\":\"acme_relay\",\"payload\":{\"sha256\":\"2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64\",\"size\":10240},\"runtime\":\"kernel\",\"type\":\"ugpio\"}",
+      "code": "manifest.bad_runtime",
+      "description": "A security tier is never defaulted.",
+      "id": "runtime-unknown",
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "kernel",
+        "type": "ugpio"
+      },
+      "valid": false
+    },
+    {
+      "canonical": "{\"entry\":\"plugins/ugpio/acme_relay.py\",\"firmware_compat\":\">=1.10.0\",\"model_compat\":\">=rm1pe\",\"name\":\"acme_relay\",\"payload\":{\"sha256\":\"2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64\",\"size\":10240},\"type\":\"ugpio\"}",
+      "code": "manifest.malformed",
+      "description": "runtime is required.",
+      "id": "runtime-missing",
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "type": "ugpio"
+      },
+      "valid": false
+    },
+    {
+      "canonical": "{\"entry\":\"plugins/ugpio/../../../etc/passwd\",\"firmware_compat\":\">=1.10.0\",\"model_compat\":\">=rm1pe\",\"name\":\"acme_relay\",\"payload\":{\"sha256\":\"2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64\",\"size\":10240},\"runtime\":\"device\",\"type\":\"ugpio\"}",
+      "code": "manifest.bad_entry",
+      "description": "Invariant 1: the manifest cannot express a path that escapes the loader root.",
+      "id": "entry-traversal",
+      "manifest": {
+        "entry": "plugins/ugpio/../../../etc/passwd",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "valid": false
+    },
+    {
+      "canonical": "{\"entry\":\"/etc/kvmd/evil.py\",\"firmware_compat\":\">=1.10.0\",\"model_compat\":\">=rm1pe\",\"name\":\"acme_relay\",\"payload\":{\"sha256\":\"2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64\",\"size\":10240},\"runtime\":\"device\",\"type\":\"ugpio\"}",
+      "code": "manifest.bad_entry",
+      "description": "Invariant 1: absolute paths are refused.",
+      "id": "entry-absolute",
+      "manifest": {
+        "entry": "/etc/kvmd/evil.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "valid": false
+    },
+    {
+      "canonical": "{\"entry\":\"plugins\\\\ugpio\\\\acme_relay.py\",\"firmware_compat\":\">=1.10.0\",\"model_compat\":\">=rm1pe\",\"name\":\"acme_relay\",\"payload\":{\"sha256\":\"2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64\",\"size\":10240},\"runtime\":\"device\",\"type\":\"ugpio\"}",
+      "code": "manifest.bad_entry",
+      "description": "Invariant 1: backslash separators are refused.",
+      "id": "entry-backslash",
+      "manifest": {
+        "entry": "plugins\\ugpio\\acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "valid": false
+    },
+    {
+      "canonical": "{\"entry\":\"plugins/ugpio/acme_relay.so\",\"firmware_compat\":\">=1.10.0\",\"model_compat\":\">=rm1pe\",\"name\":\"acme_relay\",\"payload\":{\"sha256\":\"2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64\",\"size\":10240},\"runtime\":\"device\",\"type\":\"ugpio\"}",
+      "code": "manifest.bad_entry",
+      "description": "Only Python modules are loadable.",
+      "id": "entry-not-py",
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.so",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "valid": false
+    },
+    {
+      "canonical": "{\"entry\":\"ugpio/acme_relay.py\",\"firmware_compat\":\">=1.10.0\",\"model_compat\":\">=rm1pe\",\"name\":\"acme_relay\",\"payload\":{\"sha256\":\"2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64\",\"size\":10240},\"runtime\":\"device\",\"type\":\"ugpio\"}",
+      "code": "manifest.bad_entry",
+      "description": "entry must be rooted at plugins/.",
+      "id": "entry-no-prefix",
+      "manifest": {
+        "entry": "ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "valid": false
+    },
+    {
+      "canonical": "{\"entry\":\"plugins/atx/acme_relay.py\",\"firmware_compat\":\">=1.10.0\",\"model_compat\":\">=rm1pe\",\"name\":\"acme_relay\",\"payload\":{\"sha256\":\"2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64\",\"size\":10240},\"runtime\":\"device\",\"type\":\"ugpio\"}",
+      "code": "manifest.entry_type_mismatch",
+      "description": "Invariant 1: entry's type segment disagrees with type, so placement and description disagree. That is a refusal, never a redirection.",
+      "id": "entry-type-mismatch",
+      "manifest": {
+        "entry": "plugins/atx/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "valid": false
+    },
+    {
+      "canonical": "{\"entry\":\"plugins/ugpio/other_relay.py\",\"firmware_compat\":\">=1.10.0\",\"model_compat\":\">=rm1pe\",\"name\":\"acme_relay\",\"payload\":{\"sha256\":\"2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64\",\"size\":10240},\"runtime\":\"device\",\"type\":\"ugpio\"}",
+      "code": "manifest.entry_name_mismatch",
+      "description": "Invariant 1: entry's stem disagrees with name, which would let the manifest name one module and place another.",
+      "id": "entry-name-mismatch",
+      "manifest": {
+        "entry": "plugins/ugpio/other_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "valid": false
+    },
+    {
+      "canonical": "{\"entry\":\"plugins/ugpio/acme_relay.py\",\"firmware_compat\":\">=1.10.0\",\"model_compat\":\">=rm1pe\",\"name\":\"acme_relay\",\"payload\":{\"sha256\":\"2251B5B2A6F1B50E5BD3697F76E3721A851F268372C007987F76C264F086AD64\",\"size\":10240},\"runtime\":\"device\",\"type\":\"ugpio\"}",
+      "code": "manifest.bad_payload_hash",
+      "description": "Canonical means one spelling; uppercase hex is a violation, not something to normalise.",
+      "id": "payload-hash-uppercase",
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251B5B2A6F1B50E5BD3697F76E3721A851F268372C007987F76C264F086AD64",
+          "size": 10240
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "valid": false
+    },
+    {
+      "canonical": "{\"entry\":\"plugins/ugpio/acme_relay.py\",\"firmware_compat\":\">=1.10.0\",\"model_compat\":\">=rm1pe\",\"name\":\"acme_relay\",\"payload\":{\"sha256\":\"abc123\",\"size\":10240},\"runtime\":\"device\",\"type\":\"ugpio\"}",
+      "code": "manifest.bad_payload_hash",
+      "description": "Not 64 hex characters.",
+      "id": "payload-hash-short",
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "abc123",
+          "size": 10240
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "valid": false
+    },
+    {
+      "canonical": "{\"entry\":\"plugins/ugpio/acme_relay.py\",\"firmware_compat\":\">=1.10.0\",\"model_compat\":\">=rm1pe\",\"name\":\"acme_relay\",\"payload\":{\"sha256\":\"zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz\",\"size\":10240},\"runtime\":\"device\",\"type\":\"ugpio\"}",
+      "code": "manifest.bad_payload_hash",
+      "description": "Non-hex characters.",
+      "id": "payload-hash-nonhex",
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz",
+          "size": 10240
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "valid": false
+    },
+    {
+      "canonical": "{\"entry\":\"plugins/ugpio/acme_relay.py\",\"firmware_compat\":\">=1.10.0\",\"model_compat\":\">=rm1pe\",\"name\":\"acme_relay\",\"payload\":{\"sha256\":\"2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64\",\"size\":0},\"runtime\":\"device\",\"type\":\"ugpio\"}",
+      "code": "manifest.bad_payload_size",
+      "description": "An empty bundle is not a plugin.",
+      "id": "payload-size-zero",
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 0
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "valid": false
+    },
+    {
+      "canonical": "{\"entry\":\"plugins/ugpio/acme_relay.py\",\"firmware_compat\":\">=1.10.0\",\"model_compat\":\">=rm1pe\",\"name\":\"acme_relay\",\"payload\":{\"sha256\":\"2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64\",\"size\":-1},\"runtime\":\"device\",\"type\":\"ugpio\"}",
+      "code": "manifest.bad_payload_size",
+      "description": "Negative size.",
+      "id": "payload-size-negative",
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": -1
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "valid": false
+    },
+    {
+      "canonical": "{\"entry\":\"plugins/ugpio/acme_relay.py\",\"firmware_compat\":\">=1.10.0\",\"model_compat\":\">=rm1pe\",\"name\":\"acme_relay\",\"payload\":{\"sha256\":\"2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64\",\"size\":8388609},\"runtime\":\"device\",\"type\":\"ugpio\"}",
+      "code": "manifest.payload_too_large",
+      "description": "The receiver must buffer and hash the bundle before it may touch the disk, so an unbounded payload is a memory-exhaustion path the gate cannot cover.",
+      "id": "payload-too-large",
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 8388609
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "valid": false
+    },
+    {
+      "canonical": "{\"entry\":\"plugins/ugpio/acme_relay.py\",\"firmware_compat\":\">=1.10.0\",\"model_compat\":\">=rm1pe\",\"name\":\"acme_relay\",\"payload\":{\"sha256\":\"2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64\",\"size\":8388608},\"runtime\":\"device\",\"type\":\"ugpio\"}",
+      "description": "Exactly at the 8 MiB cap is allowed.",
+      "id": "payload-size-at-cap",
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 8388608
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "valid": true
+    },
+    {
+      "canonical": "{\"capabilities\":[\"fleet.admin\"],\"entry\":\"plugins/ugpio/acme_relay.py\",\"firmware_compat\":\">=1.10.0\",\"model_compat\":\">=rm1pe\",\"name\":\"acme_relay\",\"payload\":{\"sha256\":\"2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64\",\"size\":10240},\"runtime\":\"device\",\"type\":\"ugpio\"}",
+      "code": "manifest.capabilities_not_allowed",
+      "description": "Invariant 6 adjacent: device plugins draw blast radius from their console, not from a capability grant.",
+      "id": "capabilities-on-device-runtime",
+      "manifest": {
+        "capabilities": [
+          "fleet.admin"
+        ],
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "valid": false
+    },
+    {
+      "canonical": "{\"capabilities\":[],\"entry\":\"plugins/ugpio/acme_relay.py\",\"firmware_compat\":\">=1.10.0\",\"model_compat\":\">=rm1pe\",\"name\":\"acme_relay\",\"payload\":{\"sha256\":\"2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64\",\"size\":10240},\"runtime\":\"device\",\"type\":\"ugpio\"}",
+      "description": "An empty capabilities list on the device tier is permitted.",
+      "id": "capabilities-empty-on-device-runtime",
+      "manifest": {
+        "capabilities": [],
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "valid": true
+    },
+    {
+      "canonical": "{\"capabilities\":[\"Fleet Admin!\"],\"entry\":\"plugins/auth/fleet_audit.py\",\"firmware_compat\":\">=1.10.0\",\"model_compat\":\">=rm1pe\",\"name\":\"fleet_audit\",\"payload\":{\"sha256\":\"2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64\",\"size\":10240},\"runtime\":\"management\",\"type\":\"auth\"}",
+      "code": "manifest.bad_capability",
+      "description": "A capability string must match the token grammar.",
+      "id": "capability-bad-token",
+      "manifest": {
+        "capabilities": [
+          "Fleet Admin!"
+        ],
+        "entry": "plugins/auth/fleet_audit.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": ">=rm1pe",
+        "name": "fleet_audit",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "management",
+        "type": "auth"
+      },
+      "valid": false
+    },
+    {
+      "canonical": "{\"entry\":\"plugins/ugpio/acme_relay.py\",\"firmware_compat\":\">=1.10.0\",\"model_compat\":\"~>rm1pe\",\"name\":\"acme_relay\",\"payload\":{\"sha256\":\"2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64\",\"size\":10240},\"runtime\":\"device\",\"type\":\"ugpio\"}",
+      "code": "manifest.bad_compat",
+      "description": "Only >=, <=, ==, bare token and * parse.",
+      "id": "compat-bad-operator",
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": ">=1.10.0",
+        "model_compat": "~>rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "valid": false
+    },
+    {
+      "canonical": "{\"entry\":\"plugins/ugpio/acme_relay.py\",\"firmware_compat\":\"\",\"model_compat\":\">=rm1pe\",\"name\":\"acme_relay\",\"payload\":{\"sha256\":\"2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64\",\"size\":10240},\"runtime\":\"device\",\"type\":\"ugpio\"}",
+      "code": "manifest.bad_compat",
+      "description": "An empty constraint does not parse.",
+      "id": "compat-empty",
+      "manifest": {
+        "entry": "plugins/ugpio/acme_relay.py",
+        "firmware_compat": "",
+        "model_compat": ">=rm1pe",
+        "name": "acme_relay",
+        "payload": {
+          "sha256": "2251b5b2a6f1b50e5bd3697f76e3721a851f268372c007987f76c264f086ad64",
+          "size": 10240
+        },
+        "runtime": "device",
+        "type": "ugpio"
+      },
+      "valid": false
+    }
+  ],
+  "description": "Manifest validation vectors. A case with 'raw' supplies the exact bytes to parse; otherwise encode 'manifest' canonically. 'canonical' is the expected canonical JSON encoding and must round-trip byte-stably.",
+  "v": 1
+}
