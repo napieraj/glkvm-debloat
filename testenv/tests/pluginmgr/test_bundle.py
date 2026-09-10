@@ -20,8 +20,10 @@
 # ========================================================================== #
 
 
+import io
 import os
 import pathlib
+import tarfile
 import hashlib
 
 import pytest
@@ -29,6 +31,7 @@ import pytest
 from kvmd.pluginmgr.errors import RefusalError
 from kvmd.pluginmgr.errors import code_of
 from kvmd.pluginmgr.errors import CODE_BUNDLE_ENTRY_MISSING
+from kvmd.pluginmgr.errors import CODE_BUNDLE_UNSAFE_ENTRY
 from kvmd.pluginmgr.bundle import read_bundle
 from kvmd.pluginmgr.bundle import require_entry
 from kvmd.pluginmgr.bundle import readback_for
@@ -167,3 +170,81 @@ def test_readback_detects_missing_file(tmp_path: pathlib.Path) -> None:
     body = readback_for("a" * 64, root)
     assert body["tree_sha256"] != tree_hash(files)
     assert len(body["entries"]) == len(files) - 1
+
+
+# ===== entries that would be imported ahead of the declared source =====
+def _tar_of(paths: list[str]) -> bytes:
+    """A minimal uncompressed ustar carrying one regular file per path."""
+
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w", format=tarfile.USTAR_FORMAT) as tar:
+        for path in paths:
+            data = b"x"
+            info = tarfile.TarInfo(path)
+            info.size = len(data)
+            tar.addfile(info, io.BytesIO(data))
+    return buf.getvalue()
+
+
+def test_bundle_accepts_ordinary_entries() -> None:
+    # The guard against over-refusal: nothing here shadows the source.
+    files = read_bundle(_tar_of([
+        "plugins/ugpio/acme_relay.py",
+        "plugins/ugpio/table.json",
+        "plugins/ugpio/notes.txt",
+        "plugins/ugpio/lib.python.helper.py",
+    ]))
+    assert len(files) == 4
+
+
+@pytest.mark.parametrize("path", [
+    "plugins/ugpio/__pycache__/acme_relay.cpython-311.pyc",  # stale-cache shadowing
+    "plugins/ugpio/__pycache__/anything.txt",                # the directory itself is refused
+    "plugins/ugpio/acme_relay.pyc",                          # SourcelessFileLoader
+    "plugins/ugpio/acme_relay.pyo",
+    "plugins/ugpio/acme_relay.so",                           # ExtensionFileLoader, beats .py
+    "plugins/ugpio/acme_relay.abi3.so",
+    "plugins/ugpio/acme_relay.cpython-311-x86_64-linux-gnu.so",
+    "plugins/ugpio/acme_relay.pyd",
+    "plugins/ugpio/ACME_RELAY.SO",                           # suffix match is case-insensitive
+])
+def test_bundle_refuses_entries_importable_ahead_of_source(path: str) -> None:
+    """
+    Invariant 4 in the silent direction.
+
+    Readback cannot catch any of these: it compares the placed tree against the
+    bundle the server holds, and the shadowing file is IN that bundle, so both
+    sides compute the same tree hash and agree. The refusal must therefore
+    happen at admission, before anything reaches disk.
+    """
+
+    with pytest.raises(RefusalError) as caught:
+        read_bundle(_tar_of(["plugins/ugpio/acme_relay.py", path]))
+    assert code_of(caught.value) == CODE_BUNDLE_UNSAFE_ENTRY
+
+
+def test_the_import_precedence_this_refusal_rests_on() -> None:
+    """
+    Pins the CPython fact the refusal above is justified by, so that if it ever
+    moves, the reason is what goes red rather than the rule.
+
+    FileFinder resolves extensions before source, and source before bytecode.
+    A .so beside a .py therefore wins outright, and a .pyc whose header matches
+    its .py is executed instead of it.
+    """
+
+    import importlib.machinery as machinery
+    order = [
+        machinery.EXTENSION_SUFFIXES,
+        machinery.SOURCE_SUFFIXES,
+        machinery.BYTECODE_SUFFIXES,
+    ]
+    assert ".so" in order[0], "extension suffixes no longer include .so"
+    assert order[1] == [".py"]
+    assert ".pyc" in order[2]
+    # Every suffix the loader would resolve ahead of, or instead of, .py is
+    # covered by the refusal list.
+    shadowing = set(machinery.EXTENSION_SUFFIXES) | set(machinery.BYTECODE_SUFFIXES)
+    for suffix in shadowing:
+        assert suffix.lower().endswith((".pyc", ".pyo", ".pyd", ".so")), \
+            f"{suffix!r} is importable but not refused by _SHADOWING_SUFFIXES"

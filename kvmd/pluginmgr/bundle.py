@@ -104,6 +104,48 @@ def _check_path(name: str) -> None:
     for char in name:
         if not 0x20 <= ord(char) <= 0x7E:
             raise RefusalError(CODE_BUNDLE_UNSAFE_PATH, f"non-printable-ASCII in {name!r}")
+    _check_not_importable_ahead_of_source(name)
+
+
+# Fixed, not derived from importlib.machinery: the server half must refuse the
+# same set, and a list that moves with the device's CPython version could not be
+# mirrored in Go. .so covers .abi3.so and .cpython-<ver>-<plat>.so, both of which
+# end with it.
+_SHADOWING_SUFFIXES = (".pyc", ".pyo", ".pyd", ".so")
+
+
+def _check_not_importable_ahead_of_source(name: str) -> None:
+    """
+    Refuses any entry that the loader could import in preference to, or instead
+    of, the declared source entry.
+
+    The loader imports by dotted name (`kvmd.plugins.<type>.<name>`), and
+    FileFinder resolves extensions before source and source before bytecode.
+    Two measured consequences, both of which break the correspondence between
+    the source a reader can audit and the code the device runs:
+
+      * A `.so` beside a `.py` WINS. Measured: with a valid probe.py and a
+        16-byte non-ELF probe.so present, `import pkg.probe` raised ImportError
+        on the .so rather than falling through to the source.
+      * A `__pycache__/<name>.cpython-*.pyc` whose header (mtime, size) matches
+        its .py is executed INSTEAD of the source, in a fresh interpreter, after
+        invalidate_caches(). Measured: a .py reading `VERSION = 2` imported as
+        `VERSION = 1` from a stale .pyc, with __file__ still naming the .py.
+
+    Readback cannot catch either one. Readback compares the placed tree against
+    the bundle the server holds, and both files are in that bundle, so the two
+    sides agree exactly. That is invariant 4 failing in the silent direction,
+    which is the failure readback exists to prevent -- so the refusal has to be
+    here, at admission, before anything reaches disk.
+    """
+
+    for segment in name.split("/"):
+        if segment == "__pycache__":
+            raise RefusalError(CODE_BUNDLE_UNSAFE_ENTRY, f"bytecode cache directory in {name!r}")
+    lowered = name.lower()
+    for suffix in _SHADOWING_SUFFIXES:
+        if lowered.endswith(suffix):
+            raise RefusalError(CODE_BUNDLE_UNSAFE_ENTRY, f"entry {name!r} would be imported ahead of source")
 
 
 def require_entry(files: list[TreeFile], manifest: Manifest) -> None:
