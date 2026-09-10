@@ -234,3 +234,62 @@ The eight scoped workstreams are a menu, not a queue. Take the smallest genuinel
 ungated ones; do not start the speculative ones (plugin store UI, tunnel client,
 per-model config) on the strength of the plan alone. Plugin device half is
 **local drop-in only**, against the injected placement root.
+
+---
+
+# Audit round — 2026-09-10, closing state
+
+An 79-agent sweep mutated every silent-if-missed check in both repos and
+adversarially verified the survivors. **24 confirmed at 3/3. 56 findings were
+capped before verification and are NOT cleared.**
+
+## The root cause behind the rest
+
+**glkvm-debloat's test suite had never run in CI.** `.github/workflows/tox.yml`
+was gated on `[master]`; there is no master branch and never has been. Fixed —
+now `main`, `claude/**`, `mcp`.
+
+**kazbek had no `go test` or `go vet` anywhere in CI.** Fixed — `test.yml` adds
+gofmt, vet, the tests, and D-014's `go list -deps ./internal/authz/...`.
+
+**kazbek's logger killed the process on its first line.** `logFileHook.Run`
+called `log.Fatal()` (os.Exit) when it could not open an unset path, and the
+hook attaches whenever stdout is not a TTY. That is why `internal/server`
+failed at 0.010s before any test ran, and why three security guards there had
+never been observed to execute. Fixed; they pass.
+
+An unrun suite is what twenty-four green-under-mutation checks decay from.
+These three were the cause, not findings beside it.
+
+## Closed this round
+
+| What | Where |
+|---|---|
+| 4 pluginmgr checks with no mutation coverage | hash comparison truncatable to 2 hex chars; `_ENTRY_RE` end anchor removable; `read_placed_tree` symlink guard deletable; `require_entry` `==` relaxable to `endswith` |
+| Bundle entries importable ahead of source | both language halves, 3 shared vectors, 4 mutations each |
+| `WriteMsg` uint16 wrap | frame desynchronisation, not truncation |
+| `signing.md` add/add | spec keeps the path, survey to `signing-survey.md` |
+| 4 contract-doc errors | `wire.md` v1 examples, `errors.md` triggers, `manifest.md` `capabilities`, `setup.py` missing `kvmd.pluginmgr` |
+| MCP orphan suite | pytest testpath widened; 55 tests were linted by four envs and run by none |
+
+## Still open, and why
+
+**Six mutations on `claude/glkvm-webauthn` leave 84 tests green**, each proven
+exploitable. The worst: `verify_es256_openssl` treats `retcode != 1` as success
+while `kvmd/tools.py:131` returns NEGATIVE codes on signal death, so an
+OOM-killed openssl authenticates. Also a one-byte `rpIdHash` comparison, a
+challenge match relaxed to `startswith`, and both UP and UV masks widenable.
+Not fixed here: that branch cannot be pushed to from this session, and merging
+auth is a design step.
+
+**56 unverified findings.** Only the top 24 by severity were checked.
+
+**`require_entry` still asserts the declared entry is present, never that it is
+alone.** A bundle may carry files it never declared. Closing it is a design
+choice among three constraints; `docs/plugins/admission.md` §6 lists them.
+
+**Conflict 4, `docs/lean-plan.md`**, remains the last unresolved merge.
+
+**Row 1 is unchanged.** Of two skips in 1,127 tests, one needs hardware and says
+so; the other is `no reference credential store in this tree` — still reading as
+a pass, still awaiting the owner's pick among the three options above.
