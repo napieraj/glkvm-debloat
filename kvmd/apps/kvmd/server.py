@@ -68,6 +68,7 @@ from ...validators.kvm import valid_stream_zero_delay
 from ...validators.kvm import valid_stream_venc_mode
 
 from .auth import AuthManager
+from ...plugins.auth import BaseAuthService
 from .init import InitManager
 from .info import InfoManager
 from .logreader import LogReader
@@ -78,6 +79,7 @@ from .ocr import Ocr
 from .switch import Switch
 
 from .api.auth import AuthApi
+from .api.webauthn import WebAuthnApi
 from .api.auth import check_request_auth
 
 from .api.init import InitApi
@@ -116,6 +118,43 @@ from .api.mcp import McpApi
 # It declares no unauthenticated routes, and build_enabled() refuses at
 # construction if that turns out to be false -- which is the property the
 # registry exists for.
+register(Feature(
+    name="webauthn",
+    mode="local-only",
+    core="AuthManager.login_verified + HttpServer component list",
+    # THE ONLY DECLARED PRE-AUTH SURFACE IN THE TREE, and it is declared rather
+    # than tolerated. A WebAuthn assertion cannot be obtained by an
+    # already-authenticated caller -- the challenge is how a caller becomes
+    # authenticated -- so these two are unauthenticated by necessity, not by
+    # oversight. build_enabled() refuses at construction if the component
+    # exposes any pre-auth route beyond these two, or fails to expose one of
+    # them, and test_attestation asserts the whole daemon's unauthenticated set
+    # equals the core baseline plus exactly what is declared here.
+    #
+    # Merging this branch is what took the surface from 4 to 6. That is a
+    # security change and it is now visible as two named routes in a diff,
+    # rather than as a bound being raised from 4 to 6 -- which would also have
+    # licensed the next one silently.
+    unauth=frozenset({
+        ("GET", "/auth/webauthn/challenge"),
+        ("POST", "/auth/webauthn/assert"),
+    }),
+    build=(lambda auth_manager, webauthn, **_: WebAuthnApi(auth_manager, webauthn)),
+))
+
+register(Feature(
+    name="mcp",
+    mode="local-only",
+    core="HttpServer component list",
+    # POST /mcp is auth_required=True. Recorded as an empty frozenset rather
+    # than omitted, because "declares nothing" and "was never asked" look
+    # identical otherwise, and the registry refuses a component that exposes a
+    # pre-auth route its feature did not declare.
+    unauth=frozenset(),
+    build=(lambda streamer, ocr, hid, atx, msd, keymap_path, log_reader, **_:
+           McpApi(streamer, ocr, hid, atx, msd, keymap_path, log_reader)),
+))
+
 register(Feature(
     name="switch",
     mode="local-only",
@@ -189,6 +228,7 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
     def __init__(  # pylint: disable=too-many-arguments,too-many-locals
         self,
         auth_manager: AuthManager,
+        webauthn: BaseAuthService,
         init_manager: InitManager,
         info_manager: InfoManager,
         log_reader: (LogReader | None),
@@ -245,14 +285,22 @@ class KvmdServer(HttpServer):  # pylint: disable=too-many-arguments,too-many-ins
             ExportApi(info_manager, atx, user_gpio),
             RedfishApi(info_manager, atx),
             self.__serial_api,
-            McpApi(streamer, ocr, hid, atx, msd, keymap_path, log_reader),
         ]
         # Optional features come through the registry rather than an ad-hoc
         # append, so each one's unauthenticated surface is checked against its
         # own declaration before the daemon binds a single route.
         self.__apis.extend(build_enabled(
-            (["switch"] if self.__switch is not None else []),
+            (["switch"] if self.__switch is not None else []) + ["webauthn", "mcp"],
             switch=self.__switch,
+            auth_manager=auth_manager,
+            webauthn=webauthn,
+            streamer=streamer,
+            ocr=ocr,
+            hid=hid,
+            atx=atx,
+            msd=msd,
+            keymap_path=keymap_path,
+            log_reader=log_reader,
         ))
         self.__subsystems = [
             _Subsystem.make(auth_manager, "Auth manager"),

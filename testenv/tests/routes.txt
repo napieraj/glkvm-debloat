@@ -1,6 +1,7 @@
 DELETE /streamer/snapshot auth=True usc=True exe=-
 GET /atx auth=True usc=True exe=-
 GET /auth/check auth=True usc=False exe=-
+GET /auth/webauthn/challenge auth=False usc=False exe=-
 GET /export/prometheus/metrics auth=True usc=True exe=-
 GET /fingerbot/battery auth=True usc=True exe=-
 GET /fingerbot/click auth=True usc=True exe=-
@@ -59,6 +60,7 @@ POST /atx/click auth=True usc=True exe=-
 POST /atx/power auth=True usc=True exe=-
 POST /auth/login auth=False usc=False exe=-
 POST /auth/logout auth=True usc=False exe=-
+POST /auth/webauthn/assert auth=False usc=False exe=-
 POST /fingerbot/upgrade auth=True usc=True exe=-
 POST /fingerbot/upload auth=True usc=True exe=-
 POST /gpio/pulse auth=True usc=True exe=-

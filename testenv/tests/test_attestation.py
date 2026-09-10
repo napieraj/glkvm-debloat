@@ -115,14 +115,59 @@ def test_attest__no_unauth_init_route() -> None:
     assert not offenders, f"the unauthenticated init route is back: {offenders}"
 
 
-def test_attest__the_unauthenticated_surface_is_small() -> None:
-    # The audit counted 10 unauthenticated routes against upstream's 2. This is a
-    # ratchet, not a target: it may only go down. Raising the number here without
-    # a finding to justify it is the thing this catches.
-    unauth = [r for r in _routes() if "auth=False" in r]
-    assert len(unauth) <= 4, (
-        f"the unauthenticated surface grew to {len(unauth)}: {unauth}"
-    )
+# The core routes that are unauthenticated by design, and the whole of it. The
+# audit counted 10 against upstream's 2; this is a ratchet, not a target.
+_CORE_UNAUTH = {
+    ("GET", "/init/is_inited"),
+    ("GET", "/redfish/v1"),
+    ("GET", "/same_check"),
+    ("POST", "/auth/login"),
+}
+
+
+def _unauth_routes() -> set:
+    out = set()
+    for line in _routes():
+        if "auth=False" not in line:
+            continue
+        (method, path) = line.split()[:2]
+        out.add((method, path))
+    return out
+
+
+def test_attest__the_unauthenticated_surface_is_exactly_what_is_declared() -> None:
+    """
+    An EXACT set, not a count.
+
+    This asserted `len(unauth) <= 4`. Merging WebAuthn takes it to 6, because a
+    challenge must be obtainable before anyone is authenticated -- so the
+    obvious move was to raise the bound to 6. That would also have licensed the
+    seventh, and it says nothing about WHICH routes are open: swapping a benign
+    pre-auth route for a dangerous one keeps any count intact.
+
+    So the surface is now the core set above, plus exactly what the enabled
+    features declare in `kvmd.apps.kvmd.features`. Adding a pre-auth route
+    takes two deliberate edits in two files, and the registry independently
+    refuses at construction if a component's real pre-auth routes differ from
+    its declaration in either direction.
+    """
+
+    import kvmd.apps.kvmd.server  # noqa: F401  pylint: disable=unused-import,import-outside-toplevel
+    from kvmd.apps.kvmd import features  # pylint: disable=import-outside-toplevel
+
+    declared = features.declared_unauth(features.names())
+    allowed = _CORE_UNAUTH | declared
+    actual = _unauth_routes()
+
+    undeclared = actual - allowed
+    assert not undeclared, (
+        f"unauthenticated routes nothing declares: {sorted(undeclared)}. "
+        f"Add them to the owning feature's `unauth` set -- deliberately.")
+
+    missing = allowed - actual
+    assert not missing, (
+        f"declared unauthenticated routes that no longer exist: {sorted(missing)}. "
+        f"A declaration wider than reality is a licence a later edit fills silently.")
 
 
 def test_attest__no_vendor_firmware_egress() -> None:

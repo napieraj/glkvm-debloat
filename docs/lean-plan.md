@@ -108,7 +108,6 @@
 > python3.12" were green on 3.11 — the tox config was read as if it described
 > the interpreter that actually ran. Check with `python3 -V` and
 > `python3 -c "import pytest"`, do not infer it from the config.
-
 > **A PARTIAL TESTENV GIVES A FALSE GREEN. Read this before believing any
 > "the tests pass" claim, including your own.**
 >

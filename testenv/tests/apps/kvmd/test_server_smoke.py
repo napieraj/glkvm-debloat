@@ -51,6 +51,7 @@ _KEYMAP = os.path.join(os.path.dirname(__file__), "..", "..", "..", "..", "contr
 def _make_server(**overrides: object) -> KvmdServer:
     kwargs: dict = {
         "auth_manager": MagicMock(),
+        "webauthn": MagicMock(),
         "init_manager": MagicMock(),
         "info_manager": MagicMock(),
         "log_reader": None,

@@ -25,6 +25,7 @@ from ...logging import get_logger
 from ...plugins.hid import get_hid_class
 from ...plugins.atx import get_atx_class
 from ...plugins.msd import get_msd_class
+from ...plugins.auth import get_auth_service_class
 from .api.rndis import RndisApi
 from .api.upgrade import UpgradeApi
 from .api.config_utils import migrate_boot_config_sync
@@ -101,6 +102,10 @@ def main(argv: (list[str] | None)=None) -> None:
         switch = None
 
     KvmdServer(
+        webauthn=get_auth_service_class("webauthn")(
+            **config.webauthn._unpack(ignore=["enabled"]),  # pylint: disable=protected-access
+        ),
+
         auth_manager=AuthManager(
             enabled=config.auth.enabled,
             expire=config.auth.expire,
