@@ -101,6 +101,21 @@ def resolve(name: str) -> Verifier:
     Fails closed. An absent name, an unrecognised name, and "signed" (which is
     deliberately not a v1 tier) all refuse rather than silently downgrading to
     noop -- a config typo must not become an open door.
+
+    BUT "noop" IS a name this function accepts, and it disables authenticity.
+    That is deliberate and must stay: the shared contract vectors in
+    verify.json exercise noop, so removing it here would break the conformance
+    suite that proves the two language halves agree.
+
+    The constraint is therefore not enforceable here, and it has to be
+    enforced where a name first arrives from configuration. Today nothing
+    reaches this function from config -- the only caller is gate_named(), and
+    the only caller of that is the vector suite -- so the hazard is latent
+    rather than live. WHOEVER WIRES A VERIFIER NAME TO A CONFIG FILE OWNS IT:
+    refuse "noop" at that boundary, because verifier.md says it is dev-only
+    and never a default in any real config, and nothing but that boundary can
+    make it so. noop still keeps the gate's structural path safety, which is
+    the only reason it is tolerable in the tree at all.
     """
 
     if name == "noop":
