@@ -125,6 +125,30 @@ def test_attest__the_unauthenticated_surface_is_small() -> None:
     )
 
 
+def test_attest__no_systemd_units() -> None:
+    # lean-plan / gut-not-mask. The fork inherited PiKVM's 17 systemd units from
+    # upstream and shipped them into a GL.iNet buildroot image that boots
+    # BusyBox init. They could never have started: nothing installs them,
+    # apply_to_glkvm.sh deploys only kvmd/ to site-packages, and there is no
+    # systemd on the device to read them if it did.
+    #
+    # They are not inert dead weight. Their presence made "restart the service"
+    # look like an available operation and let a design assumption stand that
+    # would not have survived looking at the device, which is the case for
+    # deleting rather than masking. If a unit file reappears, either this build
+    # grew a systemd target or someone copied upstream without checking again.
+    #
+    # NOTE the runtime half survives this and is NOT what this asserts:
+    # info/extras.py and info/fan.py still ask systemd over D-Bus via
+    # sysunit.SystemdUnitInfo. Both catch and log, so they degrade rather than
+    # crash, but on a unit with no systemd bus they log an error every poll.
+    # Deleting the files did not remove the dependency -- see AGENTS.md.
+    units = os.path.join(_ROOT, "configs", "os", "services")
+    assert not os.path.exists(units), f"systemd units are back: {units}"
+    hits = _grep(r"configs/os/services", "kvmd", exts=(".py",))
+    assert not hits, hits
+
+
 def test_attest__no_vendor_firmware_egress() -> None:
     # lean-plan step 9 / D-001. The fork fetched firmware, version manifests and
     # release notes from fw.gl-inet.com on an authenticated GET, and wrote the

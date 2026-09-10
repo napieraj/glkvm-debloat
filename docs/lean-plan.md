@@ -34,6 +34,20 @@
 > writes a partition the BOOTLOADER reads). Each time the repo-scoped conclusion
 > was "orphaned, therefore inert", and each time it was wrong.
 >
+> **The inverse also holds: deleting a file does not delete a dependency.**
+> `configs/os/services/` is gone — 17 inherited PiKVM systemd units that could
+> never start on a BusyBox-init device — but `info/extras.py` and `info/fan.py`
+> still ask systemd over D-Bus through `sysunit.SystemdUnitInfo`. Both catch and
+> log, so they degrade rather than crash; on a unit with no systemd bus they log
+> an error every poll. Removing inherited FILES is not the same as removing an
+> inherited ASSUMPTION, and only the first is visible in a diff.
+>
+> Still inherited and still Raspberry Pi, not deleted here because it is wider
+> than the units and wants its own decision: `configs/os/boot-config/*rpi*.txt`,
+> `configs/os/cmdline/*.sed`, `configs/os/udev/`, `configs/os/sysusers.conf`,
+> `configs/os/tmpfiles.conf`, and `scripts/kvmd-bootconfig`. PKGBUILD installs
+> all of them and is itself Arch packaging that cannot build this fork.
+
 > When a question is about device state or device behaviour it goes to
 > `test_on_device_residuals` in the attestation suite — not into this plan, and
 > not into a grep. Where it needs a procedure rather than a yes/no, it goes to
