@@ -293,3 +293,78 @@ choice among three constraints; `docs/plugins/admission.md` §6 lists them.
 **Row 1 is unchanged.** Of two skips in 1,127 tests, one needs hardware and says
 so; the other is `no reference credential store in this tree` — still reading as
 a pass, still awaiting the owner's pick among the three options above.
+
+---
+
+# Conflict 4 resolved, and the webauthn merge dry-run — 2026-09-10
+
+## Conflict 4 is not a judgement call after all
+
+`docs/lean-plan.md` between `hutk39` and `webauthn`. Both sides only ADD from a
+common base at `44df95b` (hutk39 +155/-2, webauthn +23/-0), and the collision is
+one region: hutk39 carries **"SIX BUILD HAZARDS"**, webauthn carries **"TWO"** —
+the same two, in an earlier and wordier form.
+
+Measured rather than eyeballed: tokenising both blocks, the only terms unique to
+the webauthn side are function words and phrasing (`behind`, `between`,
+`consequences`, `failures`, `happened`, `minutes`, `several`, `unnecessary`, …).
+No identifier, no path, no fact. Even `testenv/tox.ini`, which looked like a loss
+on a first read, appears in both.
+
+**Resolution: take HEAD, discard the subsumed block. Nothing is lost.** The
+integration notes expected this to need judgement about which branch's
+understanding was current; it does not — hutk39's is a strict superset.
+
+## The webauthn merge, dry-run
+
+Performed in a throwaway worktree, not merged. With conflict 4 resolved,
+`lean-plan.md` is the **only** conflict in the entire merge. But the merged tree
+is not test-clean, and both failures are worth understanding before anyone
+decides.
+
+**1. `test_attest__the_unauthenticated_surface_is_small` — a tripwire firing
+correctly, and a decision for the owner.**
+
+```
+the unauthenticated surface grew to 6: [
+  'GET  /auth/webauthn/challenge  auth=False',
+  'POST /auth/webauthn/assert     auth=False',
+  'GET  /init/is_inited', 'GET /redfish/v1', 'GET /same_check', 'POST /auth/login']
+assert 6 <= 4
+```
+
+This is not a broken test. It is the attestation suite doing exactly its job:
+WebAuthn necessarily adds two unauthenticated endpoints, because a challenge must
+be obtainable before anyone is authenticated. Raising the bound from 4 to 6 is a
+**security decision** — it permanently widens the pre-auth attack surface — and
+it must be taken deliberately, with the two new routes named in the assertion so
+that a seventh still fails. Do not "fix the test".
+
+**2. `test_ok__cryptography_absent_here` — an environment artifact of this
+session, not a merge problem.**
+
+The test asserts `verify_es256_cryptography(...) is None`, and its own comment
+says why: *"If this ever starts returning a bool, the fast path has become live
+and needs its own coverage."* `cryptography` is not in
+`testenv/requirements.txt`; it is in the venv reconstructed for this session
+(50.0.1), installed while chasing dependencies. So the canary fired **correctly**
+— against this environment, not against the code.
+
+That is worth keeping as evidence for a claim made earlier in the session: counts
+from the reconstructed environment are provisional, and here is a concrete case
+where it differs from the staged testenv in a way that changes a result. It also
+sharpens the audit's finding that the `cryptography` fast path is dead and its two
+fail-open mutations can never redden — dead in the staged env, live in this one.
+
+## What this means for the merge decision
+
+The mechanical part is ready: one conflict, resolved, nothing lost. What remains
+is not mechanical —
+
+- the six webauthn mutations that leave 84 tests green, one of which
+  (`retcode != 1`) authenticates a signal-killed `openssl`;
+- the unauthenticated-surface bound, which is a deliberate widening;
+- the `webauthn.json` guard, which goes **live** on merge — the dry-run showed
+  1 skip where the branch alone shows 2.
+
+All three are the owner's, and none is blocked by the other two.
